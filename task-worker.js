@@ -1,3 +1,5 @@
+require("dotenv").config();
+
 const express = require("express");
 const crypto = require("crypto");
 
@@ -9,11 +11,13 @@ const AGENT_NAME = process.env.AGENT_NAME || "your_agent_name";
 const HERMES_SECRET = process.env.HERMES_SECRET || "";
 const OPENCLAW_SECRET = process.env.OPENCLAW_SECRET || "";
 
-app.use(express.json({
-  verify: (req, _res, buf) => {
-    req.rawBody = buf;
-  }
-}));
+app.use(
+  express.json({
+    verify: (req, _res, buf) => {
+      req.rawBody = buf;
+    },
+  })
+);
 
 const seenTaskIds = new Set();
 const routeTable = new Map();
@@ -31,7 +35,7 @@ app.post("/task", async (req, res) => {
         status: "error",
         summary: "Unauthorized",
         details: "Invalid Hermes signature.",
-        error: "bad_signature"
+        error: "bad_signature",
       });
     }
 
@@ -43,8 +47,9 @@ app.post("/task", async (req, res) => {
         agent: `${AGENT_NAME}`,
         status: "error",
         summary: "No task payload received",
-        details: "The request requires a structured JSON task from Hermes. No task was provided.",
-        error: "missing_task_payload"
+        details:
+          "The request requires a structured JSON task from Hermes. No task was provided.",
+        error: "missing_task_payload",
       });
     }
 
@@ -54,7 +59,7 @@ app.post("/task", async (req, res) => {
       goal = null,
       context = {},
       constraints = {},
-      expected_output = {}
+      expected_output = {},
     } = payload;
 
     if (!goal || typeof goal !== "string") {
@@ -64,7 +69,7 @@ app.post("/task", async (req, res) => {
         status: "error",
         summary: "Missing goal",
         details: "The task payload must include a string field named goal.",
-        error: "missing_goal"
+        error: "missing_goal",
       });
     }
 
@@ -75,7 +80,7 @@ app.post("/task", async (req, res) => {
         status: "duplicate",
         summary: "Task already received",
         details: "This task_id has already been processed or accepted.",
-        error: null
+        error: null,
       });
     }
 
@@ -92,14 +97,14 @@ app.post("/task", async (req, res) => {
       constraints,
       expected_output,
       trace_id: req.get("x-request-id") || crypto.randomUUID(),
-      received_at: new Date().toISOString()
+      received_at: new Date().toISOString(),
     };
 
     routeTable.set(task_id, {
       conversation_id,
       source: "hermes",
       status: "accepted",
-      created_at: envelope.received_at
+      created_at: envelope.received_at,
     });
 
     await forwardToOpenClaw(envelope);
@@ -112,11 +117,13 @@ app.post("/task", async (req, res) => {
       details: {
         conversation_id,
         received_context_keys: Object.keys(context).sort(),
-        tools_allowed: Array.isArray(constraints.tools_allowed) ? constraints.tools_allowed : [],
+        tools_allowed: Array.isArray(constraints.tools_allowed)
+          ? constraints.tools_allowed
+          : [],
         timeout_sec: constraints.timeout_sec ?? 60,
-        expected_format: expected_output.format ?? "json"
+        expected_format: expected_output.format ?? "json",
       },
-      error: null
+      error: null,
     });
   } catch (err) {
     return res.status(500).json({
@@ -125,21 +132,23 @@ app.post("/task", async (req, res) => {
       status: "error",
       summary: "Failed to process task",
       details: err.message || "Unexpected server error",
-      error: "task_processing_failed"
+      error: "task_processing_failed",
     });
   }
 });
 
 app.post("/result", async (req, res) => {
   try {
-    if (!verifySignature(req, OPENCLAW_SECRET, req.get("x-openclaw-signature"))) {
+    if (
+      !verifySignature(req, OPENCLAW_SECRET, req.get("x-openclaw-signature"))
+    ) {
       return res.status(401).json({
         task_id: null,
         agent: `${AGENT_NAME}`,
         status: "error",
         summary: "Unauthorized",
         details: "Invalid OpenClaw signature.",
-        error: "bad_signature"
+        error: "bad_signature",
       });
     }
 
@@ -151,8 +160,9 @@ app.post("/result", async (req, res) => {
         agent: `${AGENT_NAME}`,
         status: "error",
         summary: "No result payload received",
-        details: "The request requires a structured JSON result from OpenClaw. No result was provided.",
-        error: "missing_result_payload"
+        details:
+          "The request requires a structured JSON result from OpenClaw. No result was provided.",
+        error: "missing_result_payload",
       });
     }
 
@@ -162,7 +172,7 @@ app.post("/result", async (req, res) => {
       status = "ok",
       summary = "Result received",
       details = {},
-      error = null
+      error = null,
     } = payload;
 
     if (!task_id || typeof task_id !== "string") {
@@ -172,7 +182,7 @@ app.post("/result", async (req, res) => {
         status: "error",
         summary: "Missing task_id",
         details: "The result payload must include a string field named task_id.",
-        error: "missing_task_id"
+        error: "missing_task_id",
       });
     }
 
@@ -185,7 +195,7 @@ app.post("/result", async (req, res) => {
         status: "error",
         summary: "Unknown task_id",
         details: "No matching delegated task was found for this result.",
-        error: "unknown_task_id"
+        error: "unknown_task_id",
       });
     }
 
@@ -200,7 +210,7 @@ app.post("/result", async (req, res) => {
       details,
       error,
       trace_id: req.get("x-request-id") || crypto.randomUUID(),
-      received_at: new Date().toISOString()
+      received_at: new Date().toISOString(),
     };
 
     existingRoute.status = status;
@@ -216,9 +226,9 @@ app.post("/result", async (req, res) => {
       summary: "OpenClaw result accepted for relay to Hermes",
       details: {
         conversation_id: resultEnvelope.conversation_id,
-        relayed_status: status
+        relayed_status: status,
       },
-      error: null
+      error: null,
     });
   } catch (err) {
     return res.status(500).json({
@@ -227,7 +237,7 @@ app.post("/result", async (req, res) => {
       status: "error",
       summary: "Failed to process result",
       details: err.message || "Unexpected server error",
-      error: "result_processing_failed"
+      error: "result_processing_failed",
     });
   }
 });
@@ -246,43 +256,111 @@ function verifySignature(req, secret, signatureHeader) {
     .update(req.rawBody)
     .digest("hex")}`;
 
+  console.log("expected signature:", expected);
+  console.log("received signature:", signatureHeader);
+
   const expectedBuf = Buffer.from(expected, "utf8");
   const actualBuf = Buffer.from(signatureHeader, "utf8");
 
-  return expectedBuf.length === actualBuf.length &&
-    crypto.timingSafeEqual(expectedBuf, actualBuf);
+  return (
+    expectedBuf.length === actualBuf.length &&
+    crypto.timingSafeEqual(expectedBuf, actualBuf)
+  );
 }
 
 async function forwardToOpenClaw(envelope) {
-  console.log("[forwardToOpenClaw] placeholder call", {
-    task_id: envelope.task_id,
-    conversation_id: envelope.conversation_id,
-    goal: envelope.goal
+  const url =
+    process.env.OPENCLAW_URL ||
+    "http://127.0.0.1:18789/v1/chat/completions";
+  const apiKey = process.env.OPENCLAW_API_KEY || "";
+
+  if (!apiKey) {
+    throw new Error("OPENCLAW_API_KEY is not set");
+  }
+
+  const body = JSON.stringify({
+    model: "openclaw/default",
+    messages: [
+      {
+        role: "system",
+        content:
+          "You are OpenClaw receiving a delegated task from Hermes through task-worker. " +
+          "Read the provided JSON payload, execute the task, and respond concisely.",
+      },
+      {
+        role: "user",
+        content: JSON.stringify({
+          task_id: envelope.task_id,
+          conversation_id: envelope.conversation_id,
+          goal: envelope.goal,
+          context: envelope.context,
+          constraints: envelope.constraints,
+          expected_output: envelope.expected_output,
+          metadata: {
+            trace_id: envelope.trace_id,
+            received_at: envelope.received_at,
+          },
+        }),
+      },
+    ],
+    stream: false,
   });
 
-  /*
-  Example placeholder:
+  console.log("[forwardToOpenClaw] POST", {
+    url,
+    task_id: envelope.task_id,
+  });
 
-  const response = await fetch(process.env.OPENCLAW_URL, {
+  const response = await fetch(url, {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "authorization": `Bearer ${process.env.OPENCLAW_API_KEY}`
+      authorization: `Bearer ${apiKey}`,
     },
-    body: JSON.stringify(envelope)
+    body,
   });
 
   if (!response.ok) {
-    throw new Error(`OpenClaw forward failed with status ${response.status}`);
+    const text = await response.text().catch(() => "");
+    console.error("[forwardToOpenClaw] failed", {
+      status: response.status,
+      body: text,
+    });
+    throw new Error(
+      `OpenClaw forward failed with status ${response.status}: ${text}`
+    );
   }
 
-  return await response.json();
-  */
+  const json = await response.json().catch(() => ({ ok: true }));
 
-  return {
-    ok: true,
-    forwarded_to: "openclaw"
-  };
+  console.log("[forwardToOpenClaw] forwarded", {
+    task_id: envelope.task_id,
+    status: response.status,
+  });
+
+  const completionText =
+    json?.choices?.[0]?.message?.content ||
+    "OpenClaw completed the delegated task";
+
+  const existingRoute = routeTable.get(envelope.task_id) || {};
+  existingRoute.status = "ok";
+  existingRoute.last_result_at = new Date().toISOString();
+  routeTable.set(envelope.task_id, existingRoute);
+
+  await forwardToHermes({
+    task_id: envelope.task_id,
+    conversation_id: envelope.conversation_id,
+    status: "ok",
+    summary: "OpenClaw completed the delegated task",
+    details: {
+      openclaw_response: completionText,
+      raw_openclaw: json,
+    },
+    error: null,
+    trace_id: envelope.trace_id,
+  });
+
+  return json;
 }
 
 async function forwardToHermes(envelope) {
@@ -298,12 +376,13 @@ async function forwardToHermes(envelope) {
     status: envelope.status || "ok",
     summary: envelope.summary || "OpenClaw completed the delegated task",
     details: envelope.details || {},
-    error: envelope.error ?? null
+    error: envelope.error ?? null,
   });
 
   const headers = {
     "content-type": "application/json",
-    "x-request-id": envelope.trace_id || envelope.task_id || crypto.randomUUID()
+    "x-request-id":
+      envelope.trace_id || envelope.task_id || crypto.randomUUID(),
   };
 
   if (hermesSecret) {
@@ -317,12 +396,14 @@ async function forwardToHermes(envelope) {
   const response = await fetch(hermesUrl, {
     method: "POST",
     headers,
-    body
+    body,
   });
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    throw new Error(`Hermes forward failed with status ${response.status}: ${text}`);
+    throw new Error(
+      `Hermes forward failed with status ${response.status}: ${text}`
+    );
   }
 
   return await response.json().catch(() => ({ ok: true }));
