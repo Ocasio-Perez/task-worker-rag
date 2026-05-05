@@ -1,50 +1,34 @@
-# Hermes ↔ Task-Worker ↔ OpenClaw Wiring Guide
+# Hermes + task-worker + OpenClaw Wiring Guide
 
-This guide documents a local HTTP-based wiring pattern where Hermes delegates work to a task-worker, the task-worker forwards work to OpenClaw, and OpenClaw returns results through the task-worker back into Hermes via a webhook route. Hermes supports outbound hook handlers and inbound webhook routes, while OpenClaw can be reached through its local authenticated gateway.
+This guide documents the final working wiring for Hermes, task-worker, and OpenClaw using HTTP instead of Telegram as the inter-agent transport.
 
-## Architecture
+## Topology
 
-The final message flow is:
-
-1. Hermes triggers a local hook handler.
-2. The hook handler POSTs a task payload to the task-worker at `/task`.
-3. The task-worker validates the request and forwards it to OpenClaw over HTTP.
-4. OpenClaw completes the task and POSTs a result to the task-worker at `/result`.
-5. The task-worker POSTs the result into a Hermes webhook route such as `/webhooks/task-worker-result`.
-
-A simple mental model is:
+The final flow is:
 
 ```text
-Hermes hook  ->  task-worker /task  ->  OpenClaw gateway
-Hermes route <-  task-worker /result <- OpenClaw callback
+Hermes hook -> task-worker /task -> OpenClaw /v1/chat/completions -> task-worker -> Hermes webhook
 ```
 
-## Prerequisites
+Hermes sends delegated work to the task-worker over a signed HTTP request, the task-worker forwards the task to the local OpenClaw gateway, and the task-worker then relays the resulting completion back into Hermes through a signed webhook route.
 
-Before starting, confirm these base conditions:
+## Working ports and services
 
-- Hermes is installed and uses `~/.hermes/config.yaml` and `~/.hermes/hooks/` for runtime configuration and custom hooks.
-- OpenClaw is running locally with gateway auth enabled; the current config shows a loopback bind on port `18789` with token authentication.
-- The Express task-worker is running locally, typically on `127.0.0.1:9000`.
-- Shared secrets are generated and stored in environment variables or `.env` files rather than hardcoded in source code.
+The working local endpoints are:
 
-## Step 1: Update Hermes config
+- Hermes webhook listener: `http://127.0.0.1:8644`
+- task-worker: `http://127.0.0.1:9000`
+- OpenClaw gateway: `http://127.0.0.1:18789` with token auth enabled
 
-Edit `~/.hermes/config.yaml` and make sure Hermes allows local HTTP targets, because the default config shown earlier had `security.allow_private_urls: false`.
+OpenClaw was verified to accept `POST /v1/chat/completions` with Bearer token authentication and return a standard chat completion response.
 
-Use a block like this:
+## Hermes configuration
+
+Hermes must expose a webhook route so the task-worker can post results back into the gateway. The route is configured under top-level `platforms.webhook`, and the working callback route name is `task-worker-result`.
+
+A working shape is:
 
 ```yaml
-security:
-  allow_private_urls: true
-  redact_secrets: true
-  tirith_enabled: true
-  tirith_path: tirith
-  tirith_timeout: 5
-  tirith_fail_open: true
-
-hooks_auto_accept: true
-
 platforms:
   webhook:
     enabled: true
@@ -53,7 +37,7 @@ platforms:
       secret: "global-fallback-secret"
       routes:
         task-worker-result:
-          secret: "replace-with-worker-result-secret"
+          secret: "<shared webhook secret>"
           prompt: |
             OpenClaw returned a delegated task result.
 
@@ -68,30 +52,13 @@ platforms:
           deliver: log
 ```
 
-This enables Hermes webhook routing and creates a route at `http://127.0.0.1:8644/webhooks/task-worker-result`, which is where the task-worker will send final results.
+Hermes was also configured with `security.allow_private_urls: true`, which is required for local webhook and task routing in this setup.
 
-## Step 2: Create the Hermes hook
+## Hermes hook
 
-Create this directory:
+The Hermes hook signs outbound requests to the task-worker using HMAC SHA-256 with the `TASK_WORKER_SECRET` environment variable. It sends the signature in `x-hermes-signature` and posts the exact JSON bytes it signed.
 
-```bash
-mkdir -p ~/.hermes/hooks/task-worker-dispatch
-```
-
-Inside it, create `HOOK.yaml`:
-
-```yaml
-name: task-worker-dispatch
-description: Send completed delegated child results to the local task-worker
-events:
-  - subagent_stop
-```
-
-Hermes gateway hooks are installed under `~/.hermes/hooks/` and use `HOOK.yaml` plus `handler.py` to react to supported gateway events.
-
-## Step 3: Add the Hermes hook handler
-
-Create `~/.hermes/hooks/task-worker-dispatch/handler.py`:
+A working handler shape is:
 
 ```python
 import os
@@ -104,11 +71,13 @@ from datetime import datetime
 TASK_WORKER_URL = os.getenv("TASK_WORKER_URL", "http://127.0.0.1:9000/task")
 TASK_WORKER_SECRET = os.getenv("TASK_WORKER_SECRET", "")
 
+
 def _sign(body: bytes, secret: str) -> str | None:
     if not secret:
         return None
     digest = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
     return f"sha256={digest}"
+
 
 async def handle(event_type: str, context: dict):
     payload = {
@@ -128,10 +97,6 @@ async def handle(event_type: str, context: dict):
         },
         "expected_output": {
             "format": "json"
-        },
-        "result_hint": {
-            "summary": context.get("child_summary"),
-            "status": context.get("child_status")
         }
     }
 
@@ -149,165 +114,234 @@ async def handle(event_type: str, context: dict):
         await client.post(TASK_WORKER_URL, content=body, headers=headers)
 ```
 
-This handler signs the payload with a shared HMAC secret and POSTs the body to the worker’s `/task` endpoint, which matches the worker-side signature verification model already implemented in Express.
+## task-worker `.env`
 
-## Step 4: Configure the task-worker `.env`
-
-In the root of the Express task-worker project, create a `.env` file with values like these:
+The final task-worker environment is:
 
 ```env
+AGENT_NAME=Claw
 HOST=127.0.0.1
 PORT=9000
-AGENT_NAME=openclaw-task-worker
 
-HERMES_SECRET=replace-with-shared-secret-from-hermes-hook
-OPENCLAW_SECRET=replace-with-secret-openclaw-uses-when-calling-result
+HERMES_SECRET=<same value as TASK_WORKER_SECRET in Hermes>
+OPENCLAW_SECRET=<shared secret for /result verification if OpenClaw signs callbacks>
 
-OPENCLAW_URL=http://127.0.0.1:18789/your/openclaw/endpoint
-OPENCLAW_API_KEY=replace-with-your-openclaw-gateway-token
+OPENCLAW_URL=http://127.0.0.1:18789/v1/chat/completions
+OPENCLAW_API_KEY=<OpenClaw gateway token>
 
 HERMES_WEBHOOK_URL=http://127.0.0.1:8644/webhooks/task-worker-result
-HERMES_WEBHOOK_SECRET=replace-with-worker-result-route-secret
+HERMES_WEBHOOK_SECRET=<same value as Hermes webhook route secret>
 ```
 
-Node/Express commonly loads `.env` values into `process.env` using the `dotenv` package, and `.env` uses simple `KEY=value` lines.
+The critical secret pair is:
 
-Also add this at the top of the Express server file:
+- Hermes `TASK_WORKER_SECRET`
+- task-worker `HERMES_SECRET`
+
+Those two values must be identical or `/task` returns `bad_signature`.
+
+## task-worker server
+
+The task-worker exposes two HTTP endpoints:
+
+- `POST /task`: receives signed delegated work from Hermes
+- `POST /result`: receives signed result callbacks from OpenClaw, if callback mode is used
+
+The working implementation uses raw-body HMAC verification, stores task routing state in memory, forwards accepted tasks to OpenClaw, and relays results back to Hermes.
+
+A working `forwardToOpenClaw` implementation uses OpenClaw's OpenAI-compatible chat completions endpoint:
 
 ```js
-require("dotenv").config();
-```
+async function forwardToOpenClaw(envelope) {
+  const url = process.env.OPENCLAW_URL || "http://127.0.0.1:18789/v1/chat/completions";
+  const apiKey = process.env.OPENCLAW_API_KEY || "";
 
-## Step 5: Install dotenv in the task-worker
-
-From the task-worker project directory, run:
-
-```bash
-npm install dotenv
-```
-
-This lets the worker load the `.env` file automatically when `require("dotenv").config()` is called at startup.
-
-## Step 6: Keep the worker endpoints aligned
-
-The task-worker should expose these endpoints:
-
-- `POST /task` for Hermes to submit delegated work.
-- `POST /result` for OpenClaw to send results back.
-
-The worker should verify `x-hermes-signature` on `/task` using `HERMES_SECRET`, and verify `x-openclaw-signature` on `/result` using `OPENCLAW_SECRET`. HMAC verification using a shared secret and the raw request body is standard webhook security practice.
-
-## Step 7: Use the revised `forwardToHermes()`
-
-In the task-worker, use this function body to relay results into Hermes:
-
-```js
-async function forwardToHermes(envelope) {
-  const hermesUrl =
-    process.env.HERMES_WEBHOOK_URL ||
-    "http://127.0.0.1:8644/webhooks/task-worker-result";
-
-  const hermesSecret = process.env.HERMES_WEBHOOK_SECRET || "";
-
-  const body = JSON.stringify({
-    task_id: envelope.task_id,
-    conversation_id: envelope.conversation_id,
-    status: envelope.status || "ok",
-    summary: envelope.summary || "OpenClaw completed the delegated task",
-    details: envelope.details || {},
-    error: envelope.error ?? null
-  });
-
-  const headers = {
-    "content-type": "application/json",
-    "x-request-id": envelope.trace_id || envelope.task_id || crypto.randomUUID()
-  };
-
-  if (hermesSecret) {
-    const digest = crypto
-      .createHmac("sha256", hermesSecret)
-      .update(body)
-      .digest("hex");
-    headers["x-webhook-signature"] = digest;
+  if (!apiKey) {
+    throw new Error("OPENCLAW_API_KEY is not set");
   }
 
-  const response = await fetch(hermesUrl, {
+  const body = JSON.stringify({
+    model: "openclaw/default",
+    messages: [
+      {
+        role: "system",
+        content:
+          "You are OpenClaw receiving a delegated task from Hermes through task-worker. " +
+          "Read the provided JSON payload, execute the task, and respond concisely.",
+      },
+      {
+        role: "user",
+        content: JSON.stringify({
+          task_id: envelope.task_id,
+          conversation_id: envelope.conversation_id,
+          goal: envelope.goal,
+          context: envelope.context,
+          constraints: envelope.constraints,
+          expected_output: envelope.expected_output,
+          metadata: {
+            trace_id: envelope.trace_id,
+            received_at: envelope.received_at,
+          },
+        }),
+      },
+    ],
+    stream: false,
+  });
+
+  const response = await fetch(url, {
     method: "POST",
-    headers,
-    body
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${apiKey}`,
+    },
+    body,
   });
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    throw new Error(`Hermes forward failed with status ${response.status}: ${text}`);
+    throw new Error(`OpenClaw forward failed with status ${response.status}: ${text}`);
   }
 
-  return await response.json().catch(() => ({ ok: true }));
+  const json = await response.json().catch(() => ({ ok: true }));
+  const completionText = json?.choices?.[0]?.message?.content || "OpenClaw completed the delegated task";
+
+  await forwardToHermes({
+    task_id: envelope.task_id,
+    conversation_id: envelope.conversation_id,
+    status: "ok",
+    summary: "OpenClaw completed the delegated task",
+    details: {
+      openclaw_response: completionText,
+      raw_openclaw: json,
+    },
+    error: null,
+    trace_id: envelope.trace_id,
+  });
+
+  return json;
 }
 ```
 
-This function posts to the Hermes route created in Step 1 and signs the request with the route secret when one is configured.
+## systemd environment fix
 
-## Step 8: Update OpenClaw config
+A major issue during setup was that Hermes `.env` values were not automatically visible to the `hermes-gateway` systemd user service. The definitive check was reading the running process environment from `/proc/$PID/environ`, not relying only on `systemctl show ... --property=Environment`.
 
-The OpenClaw config already has the local gateway pieces needed by the worker: loopback bind, port `18789`, and token auth.
+The working fix was:
 
-The main cleanup is to disable Telegram if the worker is replacing it as transport:
+1. Create `~/.config/systemd/user/hermes-gateway.env` with the required `TASK_WORKER_*` and `HERMES_WEBHOOK_*` values.
+2. Create `~/.config/systemd/user/hermes-gateway.service.d/env.conf` with:
 
-```json
-"channels": {
-  "telegram": {
-    "enabled": false
-  }
-}
+```ini
+[Service]
+EnvironmentFile=/home/larry/.config/systemd/user/hermes-gateway.env
 ```
 
-That keeps OpenClaw’s local gateway while removing the old Telegram ingress path.
-
-## Step 9: Generate and store secrets
-
-`HERMES_SECRET` and `OPENCLAW_SECRET` are arbitrary shared HMAC keys, but they should be strong random values rather than hand-written strings. A standard way to generate them is with Node’s built-in crypto or OpenSSL.
-
-Examples:
+3. Reload and restart:
 
 ```bash
-node -e "console.log('HERMES_SECRET=' + require('crypto').randomBytes(32).toString('hex'))"
-node -e "console.log('OPENCLAW_SECRET=' + require('crypto').randomBytes(32).toString('hex'))"
+systemctl --user daemon-reload
+systemctl --user restart hermes-gateway
 ```
 
-These values should be stored in `.env` files or another secret store, not committed into source control.
-
-## Step 10: Restart services
-
-After changing Hermes config, adding the hook directory, and updating environment variables, restart Hermes so it reloads the webhook platform config and discovers hooks from `~/.hermes/hooks/` during startup.
-
-Then restart the task-worker so it loads the new `.env` values and forwarding settings.
-
-## Step 11: Smoke test the wiring
-
-A simple validation sequence is:
-
-1. Start Hermes.
-2. Start the task-worker.
-3. Confirm OpenClaw is listening locally on `127.0.0.1:18789`.
-4. Trigger a delegated flow in Hermes.
-5. Confirm Hermes posts to `/task`.
-6. Confirm the worker forwards to OpenClaw.
-7. Confirm OpenClaw posts back to `/result`.
-8. Confirm the worker posts the final payload to `http://127.0.0.1:8644/webhooks/task-worker-result`.
-
-Useful checks:
+4. Verify the running process environment:
 
 ```bash
+PID=$(systemctl --user show hermes-gateway.service --property=MainPID --value)
+tr '\0' '\n' < /proc/$PID/environ | grep -E 'TASK_WORKER|HERMES_WEBHOOK'
+```
+
+That final `/proc` check confirmed Hermes was actually running with the expected secrets and URLs.
+
+## Verification steps
+
+### 1. Verify listeners
+
+```bash
+ss -ltnp | grep -E '8644|9000|18789'
 curl http://127.0.0.1:9000/
 curl http://127.0.0.1:8644/health
-ss -ltnp | grep -E '9000|8644|18789'
 ```
 
-The exact health endpoint available on Hermes may differ by build, but the webhook route should be reachable on the configured port once the platform is enabled.
+The working state is Hermes on `8644`, task-worker on `9000`, and OpenClaw on `18789`.
 
-## Notes and caveats
+### 2. Verify Hermes webhook route
 
-The in-memory `Set` and `Map` structures in the task-worker are acceptable for local testing, but they do not survive process restarts and are not safe for multiple worker instances. For durable routing and idempotency, move them to Redis, SQLite, or Postgres.
+A signed POST to Hermes webhook was accepted with:
 
-One subtle limitation remains: the hook example shown here uses the `subagent_stop` event, which Hermes documents as a delegated child completion event. That makes it appropriate for shipping delegated-child outcomes, but if the goal is to emit the initial task before the child runs, a different trigger path may be more appropriate depending on how delegation is invoked in the Hermes workflow.
+```json
+{"status":"accepted","route":"task-worker-result","event":"unknown","delivery_id":"..."}
+```
+
+That confirmed the task-worker can relay results back into Hermes through the configured route.
+
+### 3. Verify OpenClaw directly
+
+The correct OpenClaw endpoint was verified with:
+
+```bash
+curl -v http://127.0.0.1:18789/v1/chat/completions \
+  -H "Authorization: Bearer <OPENCLAW_API_KEY>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "openclaw/default",
+    "messages": [
+      { "role": "user", "content": "Hello from direct OpenClaw test" }
+    ],
+    "stream": false
+  }'
+```
+
+OpenClaw returned a standard chat completion response with `choices[0].message.content`, which confirmed the endpoint and token were correct.
+
+### 4. Verify task-worker `/task`
+
+The final signed curl for Hermes-style ingress was:
+
+```bash
+SECRET='<TASK_WORKER_SECRET>'
+
+BODY='{
+  "task_id": "test-forward-openclaw",
+  "goal": "Test Hermes -> task-worker -> OpenClaw -> Hermes round-trip",
+  "context": {
+    "source_event": "manual_test",
+    "parent_session_id": "manual-session",
+    "child_role": "tester",
+    "child_status": "ok",
+    "duration_ms": 1234,
+    "emitted_at": "2026-05-05T16:47:00Z"
+  },
+  "constraints": {
+    "timeout_sec": 600,
+    "tools_allowed": []
+  },
+  "expected_output": {
+    "format": "json"
+  },
+  "result_hint": {
+    "summary": "Manual forward-to-openclaw test",
+    "status": "ok"
+  }
+}'
+
+DIGEST=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" -hex | sed 's/^.* //')
+SIG="sha256=$DIGEST"
+
+curl -v http://127.0.0.1:9000/task \
+  -H "content-type: application/json" \
+  -H "x-hermes-signature: $SIG" \
+  -H "x-request-id: manual-openclaw-test-2" \
+  -d "$BODY"
+```
+
+The working response was `HTTP/1.1 202 Accepted`, confirming Hermes-signature verification, task acceptance, and successful forward into OpenClaw.
+
+## Final status
+
+The final working transport is:
+
+- Hermes hook signs and sends tasks to task-worker `/task`
+- task-worker verifies HMAC and forwards the task to OpenClaw `/v1/chat/completions` using Bearer token auth
+- task-worker extracts the completion text from `choices[0].message.content` and posts the result back to Hermes via `task-worker-result` webhook
+
+This replaces Telegram as the inter-agent transport layer while keeping Hermes and OpenClaw loosely coupled through a simple HTTP broker.
