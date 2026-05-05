@@ -1,8 +1,7 @@
 {
   "name": "task-worker",
   "version": "1.0.0",
-  "description": "A dedicated local HTTP worker for OpenClaw so Hermes can delegate tasks over JSON instead of trying to route work through Telegram.",
-  "main": "task-worker.js",
+  "description": "HTTP bridge service that accepts signed tasks from Hermes, forwards them to a local OpenClaw gateway, and posts AI results back to Hermes via webhooks.",
   "scripts": {
     "dev": "node --env-file=.env task-worker.js"
   },
@@ -11,6 +10,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "dotenv": "^17.4.2",
     "express": "^5.2.1"
   }
 }
