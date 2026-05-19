@@ -1,7 +1,7 @@
-require("dotenv").config();
+import "dotenv/config";
 
-const express = require("express");
-const crypto = require("crypto");
+import express from "express";
+import crypto from "crypto";
 
 const app = express();
 const HOST = process.env.HOST || "127.0.0.1";
@@ -270,8 +270,7 @@ function verifySignature(req, secret, signatureHeader) {
 
 async function forwardToOpenClaw(envelope) {
   const url =
-    process.env.OPENCLAW_URL ||
-    "http://127.0.0.1:18789/v1/chat/completions";
+    process.env.OPENCLAW_URL || "http://127.0.0.1:18789/v1/chat/completions";
   const apiKey = process.env.OPENCLAW_API_KEY || "";
 
   if (!apiKey) {
