@@ -1,40 +1,51 @@
-Hermes + task-worker + OpenClaw + Code Memory Guide
-This guide documents the current wiring for Hermes, task-worker, OpenClaw, and the new local code-memory layer built into task-worker-rag.
+# task-worker-rag
 
-The transport layer is HTTP-based:
+A local task broker and semantic code-search service that connects **Hermes**, **OpenClaw**, **ChromaDB**, and **Ollama** into one runtime.
 
-text
-Hermes hook -> task-worker /task -> OpenClaw /v1/chat/completions -> task-worker -> Hermes webhook
-The code-memory layer adds a second internal capability:
+`task-worker-rag` does two jobs: it forwards delegated work between Hermes and OpenClaw, and it exposes a signed semantic code-search API backed by embeddings and vector search.
 
-text
-Caller -> task-worker /api/search-codebase -> ChromaDB + Ollama embeddings -> matching code chunks
-Topology
-The task-worker now plays two roles:
+## What it does
 
-It brokers delegated tasks between Hermes and OpenClaw.
+- Brokers delegated tasks from Hermes to OpenClaw and posts results back through the Hermes webhook flow.
+- Exposes `POST /api/search-codebase` for trusted semantic repository search.
+- Uses Ollama to generate embeddings and ChromaDB to store and retrieve indexed code chunks.
+- Keeps routing, indexing, and search logic split into dedicated modules while running from a single Express service.
 
-It exposes a signed code-search endpoint backed by Ollama embeddings and ChromaDB.
+## Architecture
 
-That keeps orchestration, execution, and repository retrieval in one runtime while still separating routing, indexing, and search logic into dedicated modules.
+### Delegated task flow
 
-Working ports and services
-The current local endpoints are:
+```text
+Hermes hook
+  -> task-worker /task
+  -> OpenClaw /v1/chat/completions
+  -> task-worker
+  -> Hermes webhook
+```
 
-Hermes webhook listener: http://127.0.0.1:8644
+### Code search flow
 
-task-worker: http://127.0.0.1:9000
+```text
+Caller
+  -> task-worker /api/search-codebase
+  -> Ollama embeddings
+  -> ChromaDB similarity search
+  -> matching code chunks
+```
 
-OpenClaw gateway: http://127.0.0.1:18789
+## Services and ports
 
-ChromaDB: http://127.0.0.1:8000
+| Service | Default URL | Purpose |
+|---|---|---|
+| Hermes webhook listener | `http://127.0.0.1:8644` | Receives task results. |
+| task-worker | `http://127.0.0.1:9000` | Main broker and code-search API. |
+| OpenClaw gateway | `http://127.0.0.1:18789` | Delegated execution backend. |
+| ChromaDB | `http://127.0.0.1:8000` | Vector storage for indexed code. |
+| Ollama | `http://127.0.0.1:11434` | Embedding model host. |
 
-Ollama embeddings host: http://127.0.0.1:11434
+## Project layout
 
-OpenClaw is used for delegated execution, while ChromaDB and Ollama support repository indexing and semantic code search.
-
-Current project structure
-text
+```text
 task-worker-rag/
 ├── CODEMEMORY.md
 ├── README.md
@@ -49,64 +60,81 @@ task-worker-rag/
         ├── config.js
         ├── indexer.js
         └── search.js
-The split is intentional:
+```
 
-task-worker.js is the long-running Express server entrypoint.
+### File responsibilities
 
-routes/search-codebase.js owns the HTTP route for code search.
+- `task-worker.js` — Express server entrypoint, transport wiring, HMAC verification, and listener startup.
+- `routes/search-codebase.js` — HTTP route for semantic code search.
+- `services/code-memory/indexer.js` — repository indexing into ChromaDB.
+- `services/code-memory/search.js` — semantic retrieval for code chunks.
+- `scripts/reindex-codebase.js` — one-shot indexing command entrypoint.
 
-services/code-memory/indexer.js indexes repo files into Chroma.
+## API surface
 
-services/code-memory/search.js performs semantic retrieval.
+| Method | Route | Purpose |
+|---|---|---|
+| `POST` | `/task` | Accept delegated work from Hermes. |
+| `POST` | `/result` | Receive OpenClaw callbacks when callback mode is used. |
+| `POST` | `/api/search-codebase` | Run signed semantic repository search. |
+| `GET` | `/` | Basic service check. |
+| `GET` | `/health` | Health endpoint. |
 
-scripts/reindex-codebase.js is the one-shot indexing entrypoint.
+## Installation
 
-task-worker server behavior
-The task-worker exposes these HTTP endpoints:
+### 1. Install dependencies
 
-POST /task for Hermes delegated work
+```bash
+npm install
+```
 
-POST /result for OpenClaw result callbacks if callback mode is used
+### 2. Start required services
 
-POST /api/search-codebase for signed semantic repo search
+Make sure these are running before indexing or searching:
 
-GET / and GET /health for basic service checks
+- ChromaDB
+- Ollama with the embedding model available
+- Hermes webhook listener
+- OpenClaw gateway
 
-task-worker.js should remain the npm start entrypoint because it creates the Express app, mounts routes, handles HMAC verification for delegated task flow, and starts the listener.
+Pull the embedding model if needed:
 
-npm scripts
-The recommended scripts are:
+```bash
+ollama pull nomic-embed-text
+```
 
-json
-{
-  "scripts": {
-    "start": "node task-worker.js",
-    "dev": "node --watch task-worker.js",
-    "index-codebase": "node scripts/reindex-codebase.js",
-    "check": "node --check task-worker.js && node --check routes/search-codebase.js && node --check scripts/reindex-codebase.js && node --check services/code-memory/config.js && node --check services/code-memory/indexer.js && node --check services/code-memory/search.js"
-  }
-}
-npm start should start the server. npm run index-codebase should perform a one-time indexing pass over the configured repo.
+Example ChromaDB startup:
 
-task-worker environment
-The task-worker now needs both transport settings and code-memory settings.
+```bash
+docker run -d \
+  --name chroma \
+  -p 8000:8000 \
+  -v chroma_data:/chroma/chroma \
+  -e IS_PERSISTENT=TRUE \
+  -e ANONYMIZED_TELEMETRY=false \
+  chromadb/chroma:latest
+```
 
-A working shape is:
+## Configuration
 
-text
+The service needs both transport settings and code-memory settings.
+
+### Environment variables
+
+```env
 AGENT_NAME=Claw
 HOST=127.0.0.1
 PORT=9000
 
-HERMES_SECRET=<same value as Hermes TASK_WORKER_SECRET>
-OPENCLAW_SECRET=<shared secret for /result verification if OpenClaw signs callbacks>
-CODE_SEARCH_HMAC_SECRET=<reuse the same shared HMAC secret already used in your local worker/Hermes setup>
+HERMES_SECRET=
+OPENCLAW_SECRET=
+CODE_SEARCH_HMAC_SECRET=
 
 OPENCLAW_URL=http://127.0.0.1:18789/v1/chat/completions
-OPENCLAW_API_KEY=<OpenClaw gateway token>
+OPENCLAW_API_KEY=
 
 HERMES_WEBHOOK_URL=http://127.0.0.1:8644/webhooks/task-worker-result
-HERMES_WEBHOOK_SECRET=<same value as Hermes webhook route secret>
+HERMES_WEBHOOK_SECRET=
 
 CODE_REPO_PATH=/absolute/path/to/repo
 CHROMA_URL=http://127.0.0.1:8000
@@ -116,127 +144,66 @@ OLLAMA_EMBED_MODEL=nomic-embed-text
 CODE_CHUNK_SIZE=1800
 CODE_CHUNK_OVERLAP=200
 CODE_SEARCH_RESULTS=5
-Critical secret alignment:
+```
 
-Hermes TASK_WORKER_SECRET must match task-worker HERMES_SECRET
+### Secret alignment
 
-Code-search callers must use the same CODE_SEARCH_HMAC_SECRET as task-worker
+These values must match across services:
 
-In this setup, CODE_SEARCH_HMAC_SECRET can intentionally reuse the same shared local HMAC secret already used between your trusted services
+- Hermes `TASK_WORKER_SECRET` must match task-worker `HERMES_SECRET`.
+- Code-search callers must sign requests with `CODE_SEARCH_HMAC_SECRET`.
+- Hermes webhook route secret must match `HERMES_WEBHOOK_SECRET`.
+- In a fully local trusted setup, `CODE_SEARCH_HMAC_SECRET` can reuse the same shared HMAC secret already used between worker and Hermes.
 
-Hermes webhook route secret must match HERMES_WEBHOOK_SECRET
+## npm scripts
 
-Hermes configuration
-Hermes still needs its webhook route so task-worker can post results back into the gateway. The callback route name remains task-worker-result, and Hermes must still allow private URLs for local routing.
+```json
+{
+  "scripts": {
+    "start": "node task-worker.js",
+    "dev": "node --watch task-worker.js",
+    "index-codebase": "node scripts/reindex-codebase.js",
+    "check": "node --check task-worker.js && node --check routes/search-codebase.js && node --check scripts/reindex-codebase.js && node --check services/code-memory/config.js && node --check services/code-memory/indexer.js && node --check services/code-memory/search.js"
+  }
+}
+```
 
-A working shape is:
+### Script meanings
 
-text
-platforms:
-  webhook:
-    enabled: true
-    extra:
-      port: 8644
-      secret: "global-fallback-secret"
-      routes:
-        task-worker-result:
-          secret: "<shared webhook secret>"
-          prompt: |
-            OpenClaw returned a delegated task result.
+- `npm start` — start the Express server.
+- `npm run dev` — run the server in watch mode.
+- `npm run index-codebase` — perform a full repository indexing pass.
+- `npm run check` — syntax-check the worker, route, script, and code-memory modules.
 
-            Task ID: {task_id}
-            Conversation ID: {conversation_id}
-            Status: {status}
-            Summary: {summary}
-            Error: {error}
+## Getting started
 
-            Details:
-            {details}
-          deliver: log
+### 1. Validate the code
 
-security:
-  allow_private_urls: true
-Hermes hook
-Hermes signs outbound delegated requests to POST /task using HMAC SHA-256 with the exact raw JSON bytes. The signature is sent in x-hermes-signature and must match what task-worker computes from req.rawBody.
-
-That raw-body requirement also applies to /api/search-codebase, which now uses the same HMAC pattern but with x-code-search-signature and CODE_SEARCH_HMAC_SECRET.
-
-Code-memory route wiring
-The code-search route is now modular instead of being defined inline in task-worker.js.
-
-task-worker.js mounts it with:
-
-js
-app.use("/api", searchCodebaseRouter);
-The route file handles:
-
-parsing query and optional n_results
-
-verifying x-code-search-signature
-
-calling searchCodebase(query, n_results)
-
-returning { success, query, count, results }
-
-This keeps the main worker focused on transport and keeps code-memory concerns isolated under routes/ and services/code-memory/.
-
-Indexing flow
-services/code-memory/indexer.js walks the configured repository, skips ignored directories, filters by configured extensions, chunks file contents, generates embeddings with Ollama, and upserts those chunks into ChromaDB.
-
-scripts/reindex-codebase.js simply imports the indexer entrypoint so npm run index-codebase triggers a full reindex pass.
-
-Search flow
-services/code-memory/search.js embeds the incoming query with the configured Ollama embedding model, queries the configured Chroma collection, and returns ranked chunks with:
-
-file
-
-fullPath
-
-chunk
-
-distance
-
-content
-
-The route at /api/search-codebase exposes that retrieval over HTTP for trusted internal callers.
-
-Verification steps
-1. Syntax check
-bash
+```bash
 npm run check
-This validates the main worker, route, script, and code-memory modules before runtime.
+```
 
-2. Start dependencies
-Start ChromaDB and ensure Ollama is running with the embedding model available.
+### 2. Index the repository
 
-bash
-ollama pull nomic-embed-text
-Example ChromaDB start:
-
-bash
-docker run -d \
-  --name chroma \
-  -p 8000:8000 \
-  -v chroma_data:/chroma/chroma \
-  -e IS_PERSISTENT=TRUE \
-  -e ANONYMIZED_TELEMETRY=false \
-  chromadb/chroma:latest
-3. Reindex the repository
-bash
+```bash
 npm run index-codebase
-A successful run should print indexed files and a final JSON summary including repo path, indexed file count, indexed chunk count, and collection name.
+```
 
-4. Start the worker
-bash
+A successful indexing run should report the repository path, indexed file count, indexed chunk count, and collection name.
+
+### 3. Start the worker
+
+```bash
 npm start
-The worker should bind to the configured host and port and expose both the task flow and the code-search route.
+```
 
-5. Test code search
-Unsigned testing is acceptable only if CODE_SEARCH_HMAC_SECRET is empty. If it is set, the caller must sign the exact request body.
+The service should bind to the configured host and port and expose both delegated task handling and the code-search route.
 
-Example signed test:
+## Search API example
 
-bash
+Unsigned requests are only acceptable when `CODE_SEARCH_HMAC_SECRET` is empty.
+
+```bash
 SECRET='<CODE_SEARCH_HMAC_SECRET>'
 BODY='{"query":"Where is HMAC validation implemented?","n_results":5}'
 DIGEST=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" -hex | sed 's/^.* //')
@@ -246,9 +213,11 @@ curl -v http://127.0.0.1:9000/api/search-codebase \
   -H "content-type: application/json" \
   -H "x-code-search-signature: $SIG" \
   -d "$BODY"
-The expected response shape is:
+```
 
-json
+Expected response shape:
+
+```json
 {
   "success": true,
   "query": "Where is HMAC validation implemented?",
@@ -263,22 +232,64 @@ json
     }
   ]
 }
-6. Verify Hermes transport flow
-Use the same signed /task testing pattern as before to confirm Hermes delegation still works after the code-memory changes.
+```
 
-systemd note
-Hermes environment propagation through systemd user services remains important. The reliable validation method is still checking the live process environment via /proc/$PID/environ instead of assuming systemctl show ... --property=Environment is complete.
+## Hermes webhook config
 
-Current status
-The current system now supports both:
+Hermes must keep a webhook route so task-worker can post results back into the gateway, and local/private URLs must be allowed for this setup.
 
-Hermes -> task-worker -> OpenClaw -> Hermes delegated execution
+```yaml
+platforms:
+  webhook:
+    enabled: true
+    extra:
+      port: 8644
+    secret: "global-fallback-secret"
+    routes:
+      task-worker-result:
+        secret: ""
+        prompt: |
+          OpenClaw returned a delegated task result.
 
-trusted caller -> task-worker /api/search-codebase -> ChromaDB/Ollama semantic code retrieval
+          Task ID: {task_id}
+          Conversation ID: {conversation_id}
+          Status: {status}
+          Summary: {summary}
+          Error: {error}
 
-That gives task-worker-rag a clean role as both a transport broker and a repo-aware retrieval service.
+          Details:
+          {details}
+        deliver: log
+security:
+  allow_private_urls: true
+```
 
-Secret reuse note
-For the current local setup, CODE_SEARCH_HMAC_SECRET may reuse the same shared HMAC secret already used across your trusted worker/Hermes wiring.
+## Security notes
 
-That keeps configuration simple while everything remains inside the same trust boundary. If the code-search route later gets broader access, move it to a dedicated secret.
+- Hermes signs outbound `POST /task` requests using HMAC SHA-256 over the exact raw JSON body, sent in `x-hermes-signature`.
+- `/api/search-codebase` follows the same raw-body verification pattern using `x-code-search-signature` and `CODE_SEARCH_HMAC_SECRET`.
+- Raw body handling matters for signature validation on both routes.
+- Reusing the same HMAC secret is acceptable inside a single trusted local boundary, but a dedicated secret is safer if the search route later gets broader access.
+
+## How indexing works
+
+`services/code-memory/indexer.js` walks the configured repository, skips ignored directories, filters allowed file extensions, chunks file contents, generates embeddings through Ollama, and upserts the chunks into ChromaDB.
+
+`scripts/reindex-codebase.js` is a thin wrapper that triggers a full indexing pass through the npm script.
+
+## How search works
+
+`services/code-memory/search.js` embeds the incoming query, searches the configured Chroma collection, and returns ranked chunks with file metadata and content.
+
+The `/api/search-codebase` route returns a normalized payload in the form `{ success, query, count, results }`.
+
+## systemd note
+
+When running Hermes through a user systemd service, validate environment propagation from the live process environment such as `/proc/$PID/environ` instead of assuming `systemctl show ... --property=Environment` is complete.
+
+## Current role
+
+At its current stage, `task-worker-rag` acts as both of the following:
+
+- A transport broker for `Hermes -> task-worker -> OpenClaw -> Hermes` delegated execution.
+- A repository-aware retrieval service for trusted callers using `task-worker /api/search-codebase -> ChromaDB/Ollama` semantic search.
