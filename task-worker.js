@@ -2,6 +2,7 @@ import "dotenv/config";
 
 import express from "express";
 import crypto from "crypto";
+import searchCodebaseRouter from "./routes/search-codebase.js";
 
 const app = express();
 const HOST = process.env.HOST || "127.0.0.1";
@@ -22,8 +23,17 @@ app.use(
 const seenTaskIds = new Set();
 const routeTable = new Map();
 
-app.get("/", (req, res) => {
+app.use("/api", searchCodebaseRouter);
+
+app.get("/", (_req, res) => {
   res.send("Server is running");
+});
+
+app.get("/health", (_req, res) => {
+  res.json({
+    ok: true,
+    service: AGENT_NAME,
+  });
 });
 
 app.post("/task", async (req, res) => {
@@ -31,7 +41,7 @@ app.post("/task", async (req, res) => {
     if (!verifySignature(req, HERMES_SECRET, req.get("x-hermes-signature"))) {
       return res.status(401).json({
         task_id: null,
-        agent: `${AGENT_NAME}`,
+        agent: AGENT_NAME,
         status: "error",
         summary: "Unauthorized",
         details: "Invalid Hermes signature.",
@@ -44,7 +54,7 @@ app.post("/task", async (req, res) => {
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
       return res.status(400).json({
         task_id: null,
-        agent: `${AGENT_NAME}`,
+        agent: AGENT_NAME,
         status: "error",
         summary: "No task payload received",
         details:
@@ -65,7 +75,7 @@ app.post("/task", async (req, res) => {
     if (!goal || typeof goal !== "string") {
       return res.status(400).json({
         task_id,
-        agent: `${AGENT_NAME}`,
+        agent: AGENT_NAME,
         status: "error",
         summary: "Missing goal",
         details: "The task payload must include a string field named goal.",
@@ -76,7 +86,7 @@ app.post("/task", async (req, res) => {
     if (seenTaskIds.has(task_id)) {
       return res.status(200).json({
         task_id,
-        agent: `${AGENT_NAME}`,
+        agent: AGENT_NAME,
         status: "duplicate",
         summary: "Task already received",
         details: "This task_id has already been processed or accepted.",
@@ -111,7 +121,7 @@ app.post("/task", async (req, res) => {
 
     return res.status(202).json({
       task_id,
-      agent: `${AGENT_NAME}`,
+      agent: AGENT_NAME,
       status: "accepted",
       summary: `Accepted delegated task: ${goal}`,
       details: {
@@ -128,7 +138,7 @@ app.post("/task", async (req, res) => {
   } catch (err) {
     return res.status(500).json({
       task_id: req.body?.task_id ?? null,
-      agent: `${AGENT_NAME}`,
+      agent: AGENT_NAME,
       status: "error",
       summary: "Failed to process task",
       details: err.message || "Unexpected server error",
@@ -144,7 +154,7 @@ app.post("/result", async (req, res) => {
     ) {
       return res.status(401).json({
         task_id: null,
-        agent: `${AGENT_NAME}`,
+        agent: AGENT_NAME,
         status: "error",
         summary: "Unauthorized",
         details: "Invalid OpenClaw signature.",
@@ -157,7 +167,7 @@ app.post("/result", async (req, res) => {
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
       return res.status(400).json({
         task_id: null,
-        agent: `${AGENT_NAME}`,
+        agent: AGENT_NAME,
         status: "error",
         summary: "No result payload received",
         details:
@@ -178,7 +188,7 @@ app.post("/result", async (req, res) => {
     if (!task_id || typeof task_id !== "string") {
       return res.status(400).json({
         task_id: null,
-        agent: `${AGENT_NAME}`,
+        agent: AGENT_NAME,
         status: "error",
         summary: "Missing task_id",
         details: "The result payload must include a string field named task_id.",
@@ -191,7 +201,7 @@ app.post("/result", async (req, res) => {
     if (!existingRoute) {
       return res.status(404).json({
         task_id,
-        agent: `${AGENT_NAME}`,
+        agent: AGENT_NAME,
         status: "error",
         summary: "Unknown task_id",
         details: "No matching delegated task was found for this result.",
@@ -221,7 +231,7 @@ app.post("/result", async (req, res) => {
 
     return res.status(202).json({
       task_id,
-      agent: `${AGENT_NAME}`,
+      agent: AGENT_NAME,
       status: "accepted",
       summary: "OpenClaw result accepted for relay to Hermes",
       details: {
@@ -233,7 +243,7 @@ app.post("/result", async (req, res) => {
   } catch (err) {
     return res.status(500).json({
       task_id: req.body?.task_id ?? null,
-      agent: `${AGENT_NAME}`,
+      agent: AGENT_NAME,
       status: "error",
       summary: "Failed to process result",
       details: err.message || "Unexpected server error",
@@ -256,9 +266,6 @@ function verifySignature(req, secret, signatureHeader) {
     .update(req.rawBody)
     .digest("hex")}`;
 
-  console.log("expected signature:", expected);
-  console.log("received signature:", signatureHeader);
-
   const expectedBuf = Buffer.from(expected, "utf8");
   const actualBuf = Buffer.from(signatureHeader, "utf8");
 
@@ -270,7 +277,8 @@ function verifySignature(req, secret, signatureHeader) {
 
 async function forwardToOpenClaw(envelope) {
   const url =
-    process.env.OPENCLAW_URL || "http://127.0.0.1:18789/v1/chat/completions";
+    process.env.OPENCLAW_URL ||
+    "http://127.0.0.1:18789/v1/chat/completions";
   const apiKey = process.env.OPENCLAW_API_KEY || "";
 
   if (!apiKey) {
@@ -305,11 +313,6 @@ async function forwardToOpenClaw(envelope) {
     stream: false,
   });
 
-  console.log("[forwardToOpenClaw] POST", {
-    url,
-    task_id: envelope.task_id,
-  });
-
   const response = await fetch(url, {
     method: "POST",
     headers: {
@@ -321,21 +324,12 @@ async function forwardToOpenClaw(envelope) {
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    console.error("[forwardToOpenClaw] failed", {
-      status: response.status,
-      body: text,
-    });
     throw new Error(
       `OpenClaw forward failed with status ${response.status}: ${text}`
     );
   }
 
   const json = await response.json().catch(() => ({ ok: true }));
-
-  console.log("[forwardToOpenClaw] forwarded", {
-    task_id: envelope.task_id,
-    status: response.status,
-  });
 
   const completionText =
     json?.choices?.[0]?.message?.content ||
