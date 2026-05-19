@@ -1,16 +1,20 @@
 {
   "name": "task-worker",
   "version": "1.0.0",
+    "type": "module",
   "description": "HTTP bridge service that accepts signed tasks from Hermes, forwards them to a local OpenClaw gateway, and posts AI results back to Hermes via webhooks.",
   "scripts": {
-    "dev": "node --env-file=.env task-worker.js"
+    "dev": "node --env-file=.env task-worker.js",
+    "index-codebase": "node services/code-memory/indexer.js",
+    "reindex-codebase": "node scripts/reindex-codebase.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
     "dotenv": "^17.4.2",
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "chromadb": "^1.10.4",
+    "ollama": "^0.5.16"
   }
 }
