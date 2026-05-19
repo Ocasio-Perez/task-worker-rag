@@ -1,1 +1,1 @@
-import '../services/code-memory/indexer.js';
+import "../services/code-memory/indexer.js";

@@ -1,34 +1,137 @@
-# Hermes + task-worker + OpenClaw Wiring Guide
+Hermes + task-worker + OpenClaw + Code Memory Guide
+This guide documents the current wiring for Hermes, task-worker, OpenClaw, and the new local code-memory layer built into task-worker-rag.
 
-This guide documents the final working wiring for Hermes, task-worker, and OpenClaw using HTTP instead of Telegram as the inter-agent transport.
+The transport layer is HTTP-based:
 
-## Topology
-
-The final flow is:
-
-```text
+text
 Hermes hook -> task-worker /task -> OpenClaw /v1/chat/completions -> task-worker -> Hermes webhook
-```
+The code-memory layer adds a second internal capability:
 
-Hermes sends delegated work to the task-worker over a signed HTTP request, the task-worker forwards the task to the local OpenClaw gateway, and the task-worker then relays the resulting completion back into Hermes through a signed webhook route.
+text
+Caller -> task-worker /api/search-codebase -> ChromaDB + Ollama embeddings -> matching code chunks
+Topology
+The task-worker now plays two roles:
 
-## Working ports and services
+It brokers delegated tasks between Hermes and OpenClaw.
 
-The working local endpoints are:
+It exposes a signed code-search endpoint backed by Ollama embeddings and ChromaDB.
 
-- Hermes webhook listener: `http://127.0.0.1:8644`
-- task-worker: `http://127.0.0.1:9000`
-- OpenClaw gateway: `http://127.0.0.1:18789` with token auth enabled
+That keeps orchestration, execution, and repository retrieval in one runtime while still separating routing, indexing, and search logic into dedicated modules.
 
-OpenClaw was verified to accept `POST /v1/chat/completions` with Bearer token authentication and return a standard chat completion response.
+Working ports and services
+The current local endpoints are:
 
-## Hermes configuration
+Hermes webhook listener: http://127.0.0.1:8644
 
-Hermes must expose a webhook route so the task-worker can post results back into the gateway. The route is configured under top-level `platforms.webhook`, and the working callback route name is `task-worker-result`.
+task-worker: http://127.0.0.1:9000
+
+OpenClaw gateway: http://127.0.0.1:18789
+
+ChromaDB: http://127.0.0.1:8000
+
+Ollama embeddings host: http://127.0.0.1:11434
+
+OpenClaw is used for delegated execution, while ChromaDB and Ollama support repository indexing and semantic code search.
+
+Current project structure
+text
+task-worker-rag/
+├── CODEMEMORY.md
+├── README.md
+├── package.json
+├── task-worker.js
+├── routes/
+│   └── search-codebase.js
+├── scripts/
+│   └── reindex-codebase.js
+└── services/
+    └── code-memory/
+        ├── config.js
+        ├── indexer.js
+        └── search.js
+The split is intentional:
+
+task-worker.js is the long-running Express server entrypoint.
+
+routes/search-codebase.js owns the HTTP route for code search.
+
+services/code-memory/indexer.js indexes repo files into Chroma.
+
+services/code-memory/search.js performs semantic retrieval.
+
+scripts/reindex-codebase.js is the one-shot indexing entrypoint.
+
+task-worker server behavior
+The task-worker exposes these HTTP endpoints:
+
+POST /task for Hermes delegated work
+
+POST /result for OpenClaw result callbacks if callback mode is used
+
+POST /api/search-codebase for signed semantic repo search
+
+GET / and GET /health for basic service checks
+
+task-worker.js should remain the npm start entrypoint because it creates the Express app, mounts routes, handles HMAC verification for delegated task flow, and starts the listener.
+
+npm scripts
+The recommended scripts are:
+
+json
+{
+  "scripts": {
+    "start": "node task-worker.js",
+    "dev": "node --watch task-worker.js",
+    "index-codebase": "node scripts/reindex-codebase.js",
+    "check": "node --check task-worker.js && node --check routes/search-codebase.js && node --check scripts/reindex-codebase.js && node --check services/code-memory/config.js && node --check services/code-memory/indexer.js && node --check services/code-memory/search.js"
+  }
+}
+npm start should start the server. npm run index-codebase should perform a one-time indexing pass over the configured repo.
+
+task-worker environment
+The task-worker now needs both transport settings and code-memory settings.
 
 A working shape is:
 
-```yaml
+text
+AGENT_NAME=Claw
+HOST=127.0.0.1
+PORT=9000
+
+HERMES_SECRET=<same value as Hermes TASK_WORKER_SECRET>
+OPENCLAW_SECRET=<shared secret for /result verification if OpenClaw signs callbacks>
+CODE_SEARCH_HMAC_SECRET=<reuse the same shared HMAC secret already used in your local worker/Hermes setup>
+
+OPENCLAW_URL=http://127.0.0.1:18789/v1/chat/completions
+OPENCLAW_API_KEY=<OpenClaw gateway token>
+
+HERMES_WEBHOOK_URL=http://127.0.0.1:8644/webhooks/task-worker-result
+HERMES_WEBHOOK_SECRET=<same value as Hermes webhook route secret>
+
+CODE_REPO_PATH=/absolute/path/to/repo
+CHROMA_URL=http://127.0.0.1:8000
+CHROMA_COLLECTION=codebase
+OLLAMA_HOST=http://127.0.0.1:11434
+OLLAMA_EMBED_MODEL=nomic-embed-text
+CODE_CHUNK_SIZE=1800
+CODE_CHUNK_OVERLAP=200
+CODE_SEARCH_RESULTS=5
+Critical secret alignment:
+
+Hermes TASK_WORKER_SECRET must match task-worker HERMES_SECRET
+
+Code-search callers must use the same CODE_SEARCH_HMAC_SECRET as task-worker
+
+In this setup, CODE_SEARCH_HMAC_SECRET can intentionally reuse the same shared local HMAC secret already used between your trusted services
+
+Hermes webhook route secret must match HERMES_WEBHOOK_SECRET
+
+Hermes configuration
+Hermes still needs its webhook route so task-worker can post results back into the gateway. The callback route name remains task-worker-result, and Hermes must still allow private URLs for local routing.
+
+A working shape is:
+
+text
 platforms:
   webhook:
     enabled: true
@@ -50,298 +153,132 @@ platforms:
             Details:
             {details}
           deliver: log
-```
 
-Hermes was also configured with `security.allow_private_urls: true`, which is required for local webhook and task routing in this setup.
+security:
+  allow_private_urls: true
+Hermes hook
+Hermes signs outbound delegated requests to POST /task using HMAC SHA-256 with the exact raw JSON bytes. The signature is sent in x-hermes-signature and must match what task-worker computes from req.rawBody.
 
-## Hermes hook
+That raw-body requirement also applies to /api/search-codebase, which now uses the same HMAC pattern but with x-code-search-signature and CODE_SEARCH_HMAC_SECRET.
 
-The Hermes hook signs outbound requests to the task-worker using HMAC SHA-256 with the `TASK_WORKER_SECRET` environment variable. It sends the signature in `x-hermes-signature` and posts the exact JSON bytes it signed.
+Code-memory route wiring
+The code-search route is now modular instead of being defined inline in task-worker.js.
 
-A working handler shape is:
+task-worker.js mounts it with:
 
-```python
-import os
-import json
-import hashlib
-import hmac
-import httpx
-from datetime import datetime
+js
+app.use("/api", searchCodebaseRouter);
+The route file handles:
 
-TASK_WORKER_URL = os.getenv("TASK_WORKER_URL", "http://127.0.0.1:9000/task")
-TASK_WORKER_SECRET = os.getenv("TASK_WORKER_SECRET", "")
+parsing query and optional n_results
 
+verifying x-code-search-signature
 
-def _sign(body: bytes, secret: str) -> str | None:
-    if not secret:
-        return None
-    digest = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
-    return f"sha256={digest}"
+calling searchCodebase(query, n_results)
 
+returning { success, query, count, results }
 
-async def handle(event_type: str, context: dict):
-    payload = {
-        "task_id": context.get("parent_session_id"),
-        "goal": context.get("child_role") or "delegated_task",
-        "context": {
-            "source_event": event_type,
-            "parent_session_id": context.get("parent_session_id"),
-            "child_role": context.get("child_role"),
-            "child_status": context.get("child_status"),
-            "duration_ms": context.get("duration_ms"),
-            "emitted_at": datetime.utcnow().isoformat() + "Z"
-        },
-        "constraints": {
-            "timeout_sec": 600,
-            "tools_allowed": []
-        },
-        "expected_output": {
-            "format": "json"
-        }
-    }
+This keeps the main worker focused on transport and keeps code-memory concerns isolated under routes/ and services/code-memory/.
 
-    body = json.dumps(payload).encode("utf-8")
-    headers = {
-        "content-type": "application/json",
-        "x-request-id": context.get("parent_session_id", ""),
-    }
+Indexing flow
+services/code-memory/indexer.js walks the configured repository, skips ignored directories, filters by configured extensions, chunks file contents, generates embeddings with Ollama, and upserts those chunks into ChromaDB.
 
-    signature = _sign(body, TASK_WORKER_SECRET)
-    if signature:
-        headers["x-hermes-signature"] = signature
+scripts/reindex-codebase.js simply imports the indexer entrypoint so npm run index-codebase triggers a full reindex pass.
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        await client.post(TASK_WORKER_URL, content=body, headers=headers)
-```
+Search flow
+services/code-memory/search.js embeds the incoming query with the configured Ollama embedding model, queries the configured Chroma collection, and returns ranked chunks with:
 
-## task-worker `.env`
+file
 
-The final task-worker environment is:
+fullPath
 
-```env
-AGENT_NAME=Claw
-HOST=127.0.0.1
-PORT=9000
+chunk
 
-HERMES_SECRET=<same value as TASK_WORKER_SECRET in Hermes>
-OPENCLAW_SECRET=<shared secret for /result verification if OpenClaw signs callbacks>
+distance
 
-OPENCLAW_URL=http://127.0.0.1:18789/v1/chat/completions
-OPENCLAW_API_KEY=<OpenClaw gateway token>
+content
 
-HERMES_WEBHOOK_URL=http://127.0.0.1:8644/webhooks/task-worker-result
-HERMES_WEBHOOK_SECRET=<same value as Hermes webhook route secret>
-```
+The route at /api/search-codebase exposes that retrieval over HTTP for trusted internal callers.
 
-The critical secret pair is:
+Verification steps
+1. Syntax check
+bash
+npm run check
+This validates the main worker, route, script, and code-memory modules before runtime.
 
-- Hermes `TASK_WORKER_SECRET`
-- task-worker `HERMES_SECRET`
+2. Start dependencies
+Start ChromaDB and ensure Ollama is running with the embedding model available.
 
-Those two values must be identical or `/task` returns `bad_signature`.
+bash
+ollama pull nomic-embed-text
+Example ChromaDB start:
 
-## task-worker server
+bash
+docker run -d \
+  --name chroma \
+  -p 8000:8000 \
+  -v chroma_data:/chroma/chroma \
+  -e IS_PERSISTENT=TRUE \
+  -e ANONYMIZED_TELEMETRY=false \
+  chromadb/chroma:latest
+3. Reindex the repository
+bash
+npm run index-codebase
+A successful run should print indexed files and a final JSON summary including repo path, indexed file count, indexed chunk count, and collection name.
 
-The task-worker exposes two HTTP endpoints:
+4. Start the worker
+bash
+npm start
+The worker should bind to the configured host and port and expose both the task flow and the code-search route.
 
-- `POST /task`: receives signed delegated work from Hermes
-- `POST /result`: receives signed result callbacks from OpenClaw, if callback mode is used
+5. Test code search
+Unsigned testing is acceptable only if CODE_SEARCH_HMAC_SECRET is empty. If it is set, the caller must sign the exact request body.
 
-The working implementation uses raw-body HMAC verification, stores task routing state in memory, forwards accepted tasks to OpenClaw, and relays results back to Hermes.
+Example signed test:
 
-A working `forwardToOpenClaw` implementation uses OpenClaw's OpenAI-compatible chat completions endpoint:
-
-```js
-async function forwardToOpenClaw(envelope) {
-  const url = process.env.OPENCLAW_URL || "http://127.0.0.1:18789/v1/chat/completions";
-  const apiKey = process.env.OPENCLAW_API_KEY || "";
-
-  if (!apiKey) {
-    throw new Error("OPENCLAW_API_KEY is not set");
-  }
-
-  const body = JSON.stringify({
-    model: "openclaw/default",
-    messages: [
-      {
-        role: "system",
-        content:
-          "You are OpenClaw receiving a delegated task from Hermes through task-worker. " +
-          "Read the provided JSON payload, execute the task, and respond concisely.",
-      },
-      {
-        role: "user",
-        content: JSON.stringify({
-          task_id: envelope.task_id,
-          conversation_id: envelope.conversation_id,
-          goal: envelope.goal,
-          context: envelope.context,
-          constraints: envelope.constraints,
-          expected_output: envelope.expected_output,
-          metadata: {
-            trace_id: envelope.trace_id,
-            received_at: envelope.received_at,
-          },
-        }),
-      },
-    ],
-    stream: false,
-  });
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${apiKey}`,
-    },
-    body,
-  });
-
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`OpenClaw forward failed with status ${response.status}: ${text}`);
-  }
-
-  const json = await response.json().catch(() => ({ ok: true }));
-  const completionText = json?.choices?.[0]?.message?.content || "OpenClaw completed the delegated task";
-
-  await forwardToHermes({
-    task_id: envelope.task_id,
-    conversation_id: envelope.conversation_id,
-    status: "ok",
-    summary: "OpenClaw completed the delegated task",
-    details: {
-      openclaw_response: completionText,
-      raw_openclaw: json,
-    },
-    error: null,
-    trace_id: envelope.trace_id,
-  });
-
-  return json;
-}
-```
-
-## systemd environment fix
-
-A major issue during setup was that Hermes `.env` values were not automatically visible to the `hermes-gateway` systemd user service. The definitive check was reading the running process environment from `/proc/$PID/environ`, not relying only on `systemctl show ... --property=Environment`.
-
-The working fix was:
-
-1. Create `~/.config/systemd/user/hermes-gateway.env` with the required `TASK_WORKER_*` and `HERMES_WEBHOOK_*` values.
-2. Create `~/.config/systemd/user/hermes-gateway.service.d/env.conf` with:
-
-```ini
-[Service]
-EnvironmentFile=/home/larry/.config/systemd/user/hermes-gateway.env
-```
-
-3. Reload and restart:
-
-```bash
-systemctl --user daemon-reload
-systemctl --user restart hermes-gateway
-```
-
-4. Verify the running process environment:
-
-```bash
-PID=$(systemctl --user show hermes-gateway.service --property=MainPID --value)
-tr '\0' '\n' < /proc/$PID/environ | grep -E 'TASK_WORKER|HERMES_WEBHOOK'
-```
-
-That final `/proc` check confirmed Hermes was actually running with the expected secrets and URLs.
-
-## Verification steps
-
-### 1. Verify listeners
-
-```bash
-ss -ltnp | grep -E '8644|9000|18789'
-curl http://127.0.0.1:9000/
-curl http://127.0.0.1:8644/health
-```
-
-The working state is Hermes on `8644`, task-worker on `9000`, and OpenClaw on `18789`.
-
-### 2. Verify Hermes webhook route
-
-A signed POST to Hermes webhook was accepted with:
-
-```json
-{"status":"accepted","route":"task-worker-result","event":"unknown","delivery_id":"..."}
-```
-
-That confirmed the task-worker can relay results back into Hermes through the configured route.
-
-### 3. Verify OpenClaw directly
-
-The correct OpenClaw endpoint was verified with:
-
-```bash
-curl -v http://127.0.0.1:18789/v1/chat/completions \
-  -H "Authorization: Bearer <OPENCLAW_API_KEY>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "openclaw/default",
-    "messages": [
-      { "role": "user", "content": "Hello from direct OpenClaw test" }
-    ],
-    "stream": false
-  }'
-```
-
-OpenClaw returned a standard chat completion response with `choices[0].message.content`, which confirmed the endpoint and token were correct.
-
-### 4. Verify task-worker `/task`
-
-The final signed curl for Hermes-style ingress was:
-
-```bash
-SECRET='<TASK_WORKER_SECRET>'
-
-BODY='{
-  "task_id": "test-forward-openclaw",
-  "goal": "Test Hermes -> task-worker -> OpenClaw -> Hermes round-trip",
-  "context": {
-    "source_event": "manual_test",
-    "parent_session_id": "manual-session",
-    "child_role": "tester",
-    "child_status": "ok",
-    "duration_ms": 1234,
-    "emitted_at": "2026-05-05T16:47:00Z"
-  },
-  "constraints": {
-    "timeout_sec": 600,
-    "tools_allowed": []
-  },
-  "expected_output": {
-    "format": "json"
-  },
-  "result_hint": {
-    "summary": "Manual forward-to-openclaw test",
-    "status": "ok"
-  }
-}'
-
+bash
+SECRET='<CODE_SEARCH_HMAC_SECRET>'
+BODY='{"query":"Where is HMAC validation implemented?","n_results":5}'
 DIGEST=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" -hex | sed 's/^.* //')
 SIG="sha256=$DIGEST"
 
-curl -v http://127.0.0.1:9000/task \
+curl -v http://127.0.0.1:9000/api/search-codebase \
   -H "content-type: application/json" \
-  -H "x-hermes-signature: $SIG" \
-  -H "x-request-id: manual-openclaw-test-2" \
+  -H "x-code-search-signature: $SIG" \
   -d "$BODY"
-```
+The expected response shape is:
 
-The working response was `HTTP/1.1 202 Accepted`, confirming Hermes-signature verification, task acceptance, and successful forward into OpenClaw.
+json
+{
+  "success": true,
+  "query": "Where is HMAC validation implemented?",
+  "count": 5,
+  "results": [
+    {
+      "file": "task-worker.js",
+      "fullPath": "/absolute/path/to/repo/task-worker.js",
+      "chunk": 0,
+      "distance": 0.123,
+      "content": "..."
+    }
+  ]
+}
+6. Verify Hermes transport flow
+Use the same signed /task testing pattern as before to confirm Hermes delegation still works after the code-memory changes.
 
-## Final status
+systemd note
+Hermes environment propagation through systemd user services remains important. The reliable validation method is still checking the live process environment via /proc/$PID/environ instead of assuming systemctl show ... --property=Environment is complete.
 
-The final working transport is:
+Current status
+The current system now supports both:
 
-- Hermes hook signs and sends tasks to task-worker `/task`
-- task-worker verifies HMAC and forwards the task to OpenClaw `/v1/chat/completions` using Bearer token auth
-- task-worker extracts the completion text from `choices[0].message.content` and posts the result back to Hermes via `task-worker-result` webhook
+Hermes -> task-worker -> OpenClaw -> Hermes delegated execution
 
-This replaces Telegram as the inter-agent transport layer while keeping Hermes and OpenClaw loosely coupled through a simple HTTP broker.
+trusted caller -> task-worker /api/search-codebase -> ChromaDB/Ollama semantic code retrieval
+
+That gives task-worker-rag a clean role as both a transport broker and a repo-aware retrieval service.
+
+Secret reuse note
+For the current local setup, CODE_SEARCH_HMAC_SECRET may reuse the same shared HMAC secret already used across your trusted worker/Hermes wiring.
+
+That keeps configuration simple while everything remains inside the same trust boundary. If the code-search route later gets broader access, move it to a dedicated secret.
