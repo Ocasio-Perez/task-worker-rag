@@ -1,6 +1,11 @@
-import crypto from "crypto";
+import crypto from "node:crypto";
 
-export async function callCodeSearch({ query, nResults = 5 }) {
+export async function callCodeSearch({
+  query,
+  nResults = 5,
+  requestId = crypto.randomUUID(),
+  timeoutMs = 15000,
+}) {
   const url =
     process.env.CODE_SEARCH_URL ||
     "http://127.0.0.1:9000/api/search-codebase";
@@ -14,6 +19,7 @@ export async function callCodeSearch({ query, nResults = 5 }) {
 
   const headers = {
     "content-type": "application/json",
+    "x-request-id": requestId,
   };
 
   if (secret) {
@@ -27,6 +33,7 @@ export async function callCodeSearch({ query, nResults = 5 }) {
     method: "POST",
     headers,
     body,
+    signal: AbortSignal.timeout(timeoutMs),
   });
 
   if (!response.ok) {
@@ -36,5 +43,14 @@ export async function callCodeSearch({ query, nResults = 5 }) {
     );
   }
 
-  return await response.json();
+  const data = await response.json();
+
+  return {
+    success: Boolean(data?.success),
+    query: data?.query ?? query,
+    count: Number(data?.count ?? 0),
+    results: Array.isArray(data?.results) ? data.results : [],
+    requestId,
+    raw: data,
+  };
 }

@@ -1,45 +1,29 @@
 import express from "express";
-import crypto from "crypto";
+import fs from "fs/promises";
 import { searchCodebase } from "../services/code-memory/search.js";
+import { resolveRepoPath } from "../services/code-memory/config.js";
 
 const router = express.Router();
 
-function verifyCodeSearchSignature(req) {
-  const secret = process.env.CODE_SEARCH_HMAC_SECRET || "";
-  if (!secret) {
-    return true;
-  }
+function buildPreview(content, maxLength = 220) {
+  if (!content || typeof content !== "string") return "";
 
-  const signatureHeader = req.get("x-code-search-signature");
-  if (!req.rawBody || !signatureHeader) {
-    return false;
-  }
+  const normalized = content
+    .replace(/\r\n/g, "\n")
+    .replace(/\t/g, "  ")
+    .split("\n")
+    .slice(0, 8) // first ~8 lines
+    .join("\n")
+    .trim();
 
-  const expected = `sha256=${crypto
-    .createHmac("sha256", secret)
-    .update(req.rawBody)
-    .digest("hex")}`;
+  if (normalized.length <= maxLength) return normalized;
 
-  const expectedBuf = Buffer.from(expected, "utf8");
-  const actualBuf = Buffer.from(signatureHeader, "utf8");
-
-  return (
-    expectedBuf.length === actualBuf.length &&
-    crypto.timingSafeEqual(expectedBuf, actualBuf)
-  );
+  return normalized.slice(0, maxLength).trimEnd() + "…";
 }
 
 router.post("/search-codebase", async (req, res) => {
   try {
-    if (!verifyCodeSearchSignature(req)) {
-      return res.status(401).json({
-        success: false,
-        error: "bad_signature",
-        details: "Invalid code search signature.",
-      });
-    }
-
-    const { query, n_results } = req.body || {};
+    const { query, repo_name, n_results, include_content } = req.body || {};
 
     if (!query || typeof query !== "string") {
       return res.status(400).json({
@@ -48,12 +32,60 @@ router.post("/search-codebase", async (req, res) => {
       });
     }
 
-    const results = await searchCodebase(query, n_results);
+    if (!repo_name || typeof repo_name !== "string") {
+      return res.status(400).json({
+        success: false,
+        error: "repo_name is required and must be a string",
+        needs_input: true,
+        prompt: "Which repo in ~/.hermes/repos should I use?",
+      });
+    }
+
+    const repoPath = resolveRepoPath(repo_name);
+
+    const stat = await fs.stat(repoPath).catch(() => null);
+    if (!stat || !stat.isDirectory()) {
+      return res.status(404).json({
+        success: false,
+        error: "repo_not_found",
+        detail: `Repository not found: ${repo_name}`,
+      });
+    }
+
+    const nResults = typeof n_results === "number" && n_results > 0 ? n_results : undefined;
+
+    const rawResults = await searchCodebase({
+      query,
+      repoPath,
+      repoName: repo_name,
+      nResults,
+    });
+
+    const limited = rawResults.slice(0, nResults ?? rawResults.length);
+
+    const results = limited.map((item) => ({
+      file: item.file,
+      fullPath: item.fullPath,
+      chunk: item.chunk,
+      distance: item.distance,
+      preview: buildPreview(item.content),
+      ...(include_content ? { content: item.content } : {}),
+      repoName: item.repoName || repo_name,
+      repoPath: item.repoPath || repoPath,
+    }));
+
+    const files = new Set(results.map((r) => r.file).filter(Boolean));
+    const summary = results.length
+      ? `Found ${results.length} matching chunks in ${files.size} file${files.size === 1 ? "" : "s"}`
+      : "No matching chunks found";
 
     return res.json({
       success: true,
       query,
+      repo_name,
+      repo_path: repoPath,
       count: results.length,
+      summary,
       results,
     });
   } catch (error) {
