@@ -293,3 +293,168 @@ At its current stage, `task-worker-rag` acts as both of the following:
 
 - A transport broker for `Hermes -> task-worker -> OpenClaw -> Hermes` delegated execution.
 - A repository-aware retrieval service for trusted callers using `task-worker /api/search-codebase -> ChromaDB/Ollama` semantic search.
+
+## Current state and roadmap
+
+### Topology (verified)
+
+Hermes hook ─signed POST─▶ task-worker `/task` ─▶ OpenClaw `/v1/chat/completions` ─▶ task-worker ─signed POST─▶ Hermes `/webhooks/task-worker-result`
+
+External callers may also push work directly into Hermes via the signed inbound route at `/webhooks/external-delegation`, which then runs an internal subagent and (on `subagent_stop`) fires the `task-worker-dispatch` hook back to task-worker.
+
+### Endpoints and ports
+
+| Service       | Bind              | Notes                                                        |
+| ------------- | ----------------- | ------------------------------------------------------------ |
+| Hermes        | `127.0.0.1:8644`  | Webhook listener; routes under `/webhooks/{route_name}`      |
+| task-worker   | `127.0.0.1:9000`  | Node/Express; `/`, `POST /task`, `POST /result`, `POST /api/search-codebase` |
+| OpenClaw      | `127.0.0.1:18789` | OpenAI-compatible API; companion admin port on `18791` (401-gated) |
+
+### Auth and signing
+
+- Hermes → task-worker `/task`: HMAC-SHA256 of raw body using `TASK_WORKER_SECRET` (Hermes) == `HERMES_SECRET` (task-worker), sent as `x-hermes-signature: sha256=<hex>`.
+- External → Hermes `/webhooks/external-delegation`: HMAC-SHA256 of raw body using the route secret, sent as `X-Webhook-Signature: <bare hex>`.
+- task-worker → Hermes `/webhooks/task-worker-result`: HMAC-SHA256 of raw body using the route secret, sent as `x-webhook-signature: <bare hex>`.
+- task-worker → OpenClaw `/v1/chat/completions`: `Authorization: Bearer ${OPENCLAW_API_KEY}`.
+- OpenClaw → task-worker `/result` (if used): HMAC using `OPENCLAW_SECRET`, header `x-openclaw-signature`.
+
+### One-command health check
+
+For a single command that verifies listeners, endpoints, and a signed inbound delivery into Hermes, use:
+
+```bash
+./scripts/healthcheck.sh
+```
+
+It exits `0` if everything is healthy and non-zero on the first failure. See `docs/RUNBOOK.md` for options (`--quiet`, `--json`) and how to run it on a schedule.
+
+### Reference: signed Hermes-style POST to task-worker
+
+```bash
+SECRET="$TASK_WORKER_SECRET"   # same as HERMES_SECRET on task-worker
+BODY='{
+  "task_id": "smoke-test",
+  "goal": "Smoke test Hermes -> task-worker -> OpenClaw -> Hermes",
+  "context": {
+    "source_event": "manual_test",
+    "parent_session_id": "smoke-session",
+    "child_role": "tester",
+    "child_status": "ok",
+    "duration_ms": 100,
+    "emitted_at": "2026-05-21T18:00:00Z"
+  },
+  "constraints": { "timeout_sec": 60, "tools_allowed": [] },
+  "expected_output": { "format": "json" },
+  "result_hint": { "summary": "smoke test", "status": "ok" }
+}'
+
+DIGEST=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" -hex | sed 's/^.* //')
+SIG="sha256=$DIGEST"
+
+curl -v http://127.0.0.1:9000/task \
+  -H "content-type: application/json" \
+  -H "x-hermes-signature: $SIG" \
+  -H "x-request-id: smoke-test" \
+  -d "$BODY"
+```
+
+A `202 Accepted` confirms HMAC, schema, and transport are healthy.
+
+### Reference: signed external delivery into Hermes
+
+```bash
+SECRET="$HERMES_EXTERNAL_DELEGATION_SECRET"   # value of platforms.webhook.routes.external-delegation.secret
+
+BODY='{
+  "task": "Reply briefly confirming Hermes received this delegation.",
+  "repository": "task-worker-rag",
+  "output_requirements": "Return a short JSON object with status, agent, and message."
+}'
+
+SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" -hex | awk '{print $2}')
+
+curl -v http://127.0.0.1:8644/webhooks/external-delegation \
+  -H "Content-Type: application/json" \
+  -H "X-Webhook-Signature: $SIG" \
+  -d "$BODY"
+```
+
+A `202 Accepted` with a `delivery_id` confirms inbound is healthy. Note this is non-blocking — the subagent runs asynchronously.
+
+### systemd
+
+User-mode services (run on login; enable `loginctl enable-linger larry` to start at boot):
+
+```bash
+# Status / logs
+systemctl --user status hermes-gateway openclaw-gateway task-worker
+journalctl --user -u hermes-gateway -f
+journalctl --user -u openclaw-gateway -f
+journalctl --user -u task-worker -f
+
+# Restart
+systemctl --user restart hermes-gateway
+systemctl --user restart openclaw-gateway
+systemctl --user restart task-worker
+```
+
+Canonical config locations:
+
+- Hermes config: `/home/larry/.hermes/config.yaml`
+- Hermes hook: `/home/larry/.hermes/hooks/task-worker-dispatch/HOOK.yaml`
+- Hermes env: `~/.config/systemd/user/hermes-gateway.env`
+- task-worker unit/env: `~/.config/systemd/user/<task-worker>.service` (+ env file)
+- OpenClaw unit: `~/.config/systemd/user/openclaw-gateway.service`
+- task-worker runtime: `~/Development/task-worker-rag`
+- (Optional) RAG corpus: `~/.hermes/repos/<repo_name>`
+
+### What works today
+
+- ✅ task-worker `/`, `/task`, and `/result` behaviors (including `bad_signature`, `missing_goal`, `duplicate`, `needs_input`, `task_processing_failed`).
+- ✅ task-worker ↔ OpenClaw round trip via Bearer-authenticated `/v1/chat/completions`.
+- ✅ External → Hermes signed inbound at `/webhooks/external-delegation` returns `202 Accepted` reliably.
+- ✅ task-worker → Hermes signed callback to `/webhooks/task-worker-result`.
+- ✅ `task-worker-dispatch` hook registered for `subagent_stop`.
+- ✅ task-worker runs as a systemd user service, logs visible via `journalctl --user -u <task-worker> -f`.
+- ✅ Hermes inbound deliveries spawn real subagents (observed actual tool-call attempts in logs).
+- ✅ Code memory wiring scoped by `repo_name`, with `package-lock.json` excluded and file-level reranking surfacing the correct file.
+
+### Known limitations
+
+- ⚠️ Hermes subagents using `gpt-oss:20b` often try to call tools that aren’t registered (`repo_browser.*`, `container.exec`, `filesystem.exec`, `assistant`, …) and end as `partial`, so `subagent_stop` does not always emit a clean result back through `task-worker-dispatch`.
+- ⚠️ Telegram → Hermes → task-worker is not auto-wired. The Telegram persona currently has no “delegate to task-worker” tool; inbound webhook + hook is the supported machine-driven path.
+- ⚠️ Code-memory chunking is fixed-character; the right file is usually surfaced, but the exact in-file snippet is not always the best match (e.g., function-level precision needs work).
+- ⚠️ Default logging is INFO. Deep debugging requires `LOG_LEVEL=DEBUG` and ideally foreground runs.
+
+### Roadmap (rough priority)
+
+1. Tighten Hermes subagent runtime
+   - Constrain prompts/toolsets, or align model to installed tools, or replace `gpt-oss:20b` with a model whose tool repertoire matches Hermes.
+   - Capture one full delivery → subagent run with `LOG_LEVEL=DEBUG` in foreground to lock down the failure mode.
+2. End-to-end observability
+   - Standardize a `x-correlation-id` across Hermes → task-worker → OpenClaw → Hermes.
+   - Add a small “debug sink” endpoint on task-worker to record the latest subagent result from `task-worker-dispatch`.
+3. Optional: Telegram → task-worker bridge
+   - Add a Hermes-side tool/hook (only on the Telegram persona) that signs and POSTs to `TASK_WORKER_URL`.
+4. Code-memory quality
+   - Chunk-level reranking (exact-symbol boost), then structure-aware chunking (functions/classes/routes).
+   - Add metadata for filtering (language, kind, repo path) and surface it in API responses.
+   - Automate reindexing (Git hook, systemd timer, or webhook).
+5. Operational hardening
+   - `EnvironmentFile=` per service, explicit `WorkingDirectory=` and `Type=simple`.
+   - `loginctl enable-linger` so user services come up at boot without login.
+   - Status section + smoke-test script in README.
+6. Persistence and resilience (later)
+   - Move task-worker’s in-memory route table to SQLite/Redis.
+   - Extend idempotency beyond `task_id` (delivery_id, time-windowed dedupe).
+   - Multi-repo support and multi-agent routing in task-worker.
+
+### How to come back to this
+
+If picking this up fresh:
+
+1. Verify listeners: `ss -ltnp | grep -E '8644|9000|18789'`.
+2. Confirm task-worker is healthy: `curl http://127.0.0.1:9000/`.
+3. Send a signed task to task-worker (see “Reference: signed Hermes-style POST”) and confirm `202 Accepted`.
+4. Send a signed inbound to Hermes (`./scripts/hermes-inbound-test.sh`) and confirm `202 Accepted` with `delivery_id`.
+5. Pick one item from the roadmap and scope it as a single focused session.

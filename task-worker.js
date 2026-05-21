@@ -2,12 +2,15 @@ import "dotenv/config";
 
 import express from "express";
 import crypto from "crypto";
+import path from "path";
+import fs from "fs/promises";
 import searchCodebaseRouter from "./routes/search-codebase.js";
 
 const app = express();
 const HOST = process.env.HOST || "127.0.0.1";
 const PORT = Number(process.env.PORT || 9000);
 const AGENT_NAME = process.env.AGENT_NAME || "your_agent_name";
+const REPO_ROOT = process.env.REPO_ROOT || "/home/larry/.hermes/repos";
 
 const HERMES_SECRET = process.env.HERMES_SECRET || "";
 const OPENCLAW_SECRET = process.env.OPENCLAW_SECRET || "";
@@ -20,28 +23,56 @@ app.use(
   })
 );
 
+app.use("/api", searchCodebaseRouter);
+
 const seenTaskIds = new Set();
 const routeTable = new Map();
-
-app.use("/api", searchCodebaseRouter);
 
 app.get("/", (_req, res) => {
   res.send("Server is running");
 });
 
-app.get("/health", (_req, res) => {
-  res.json({
-    ok: true,
-    service: AGENT_NAME,
-  });
-});
+function cleanRepoName(value) {
+  const repo = String(value || "").trim();
+  if (!repo) return "";
+  return repo.replace(/[^a-zA-Z0-9._-]/g, "").slice(0, 120);
+}
+
+function resolveRepoPath(repoName) {
+  const cleaned = cleanRepoName(repoName);
+  if (!cleaned) {
+    throw new Error("repo_name is required");
+  }
+
+  const resolved = path.resolve(REPO_ROOT, cleaned);
+  const rootResolved = path.resolve(REPO_ROOT);
+
+  if (resolved === rootResolved || !resolved.startsWith(`${rootResolved}${path.sep}`)) {
+    throw new Error("invalid repo_name");
+  }
+
+  return resolved;
+}
+
+async function ensureRepoExists(repoName) {
+  const repoPath = resolveRepoPath(repoName);
+  const stat = await fs.stat(repoPath).catch(() => null);
+
+  if (!stat || !stat.isDirectory()) {
+    const err = new Error(`Repository not found: ${repoName}`);
+    err.code = "repo_not_found";
+    throw err;
+  }
+
+  return repoPath;
+}
 
 app.post("/task", async (req, res) => {
   try {
     if (!verifySignature(req, HERMES_SECRET, req.get("x-hermes-signature"))) {
       return res.status(401).json({
         task_id: null,
-        agent: AGENT_NAME,
+        agent: `${AGENT_NAME}`,
         status: "error",
         summary: "Unauthorized",
         details: "Invalid Hermes signature.",
@@ -54,7 +85,7 @@ app.post("/task", async (req, res) => {
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
       return res.status(400).json({
         task_id: null,
-        agent: AGENT_NAME,
+        agent: `${AGENT_NAME}`,
         status: "error",
         summary: "No task payload received",
         details:
@@ -70,12 +101,14 @@ app.post("/task", async (req, res) => {
       context = {},
       constraints = {},
       expected_output = {},
+      repo_name = "",
+      repo_root = REPO_ROOT,
     } = payload;
 
     if (!goal || typeof goal !== "string") {
       return res.status(400).json({
         task_id,
-        agent: AGENT_NAME,
+        agent: `${AGENT_NAME}`,
         status: "error",
         summary: "Missing goal",
         details: "The task payload must include a string field named goal.",
@@ -83,10 +116,49 @@ app.post("/task", async (req, res) => {
       });
     }
 
+    const requestedRepoName =
+      cleanRepoName(repo_name) ||
+      cleanRepoName(context?.repo_name) ||
+      cleanRepoName(context?.repository) ||
+      cleanRepoName(context?.repo);
+
+    if (!requestedRepoName) {
+      return res.status(400).json({
+        task_id,
+        agent: `${AGENT_NAME}`,
+        status: "needs_input",
+        summary: "A repository name is required before I can continue.",
+        details: {
+          prompt: "Which repo in ~/.hermes/repos should I use?",
+          expected_input: {
+            field: "repo_name",
+            example: "task-worker-rag",
+          },
+          repo_root: REPO_ROOT,
+        },
+        error: "missing_repo_name",
+      });
+    }
+
+    let resolvedRepoPath;
+    try {
+      resolvedRepoPath = await ensureRepoExists(requestedRepoName);
+    } catch (err) {
+      const errorCode = err?.code === "repo_not_found" ? "repo_not_found" : "invalid_repo_name";
+      return res.status(errorCode === "repo_not_found" ? 404 : 400).json({
+        task_id,
+        agent: `${AGENT_NAME}`,
+        status: "error",
+        summary: "Invalid repository target",
+        details: err.message || "Unable to resolve repository path.",
+        error: errorCode,
+      });
+    }
+
     if (seenTaskIds.has(task_id)) {
       return res.status(200).json({
         task_id,
-        agent: AGENT_NAME,
+        agent: `${AGENT_NAME}`,
         status: "duplicate",
         summary: "Task already received",
         details: "This task_id has already been processed or accepted.",
@@ -96,6 +168,13 @@ app.post("/task", async (req, res) => {
 
     seenTaskIds.add(task_id);
 
+    const normalizedContext = {
+      ...context,
+      repo_name: requestedRepoName,
+      repo_root: repo_root || REPO_ROOT,
+      repo_path: resolvedRepoPath,
+    };
+
     const envelope = {
       task_id,
       conversation_id,
@@ -103,7 +182,10 @@ app.post("/task", async (req, res) => {
       sender: "hermes",
       target: "openclaw",
       goal,
-      context,
+      repo_name: requestedRepoName,
+      repo_root: repo_root || REPO_ROOT,
+      repo_path: resolvedRepoPath,
+      context: normalizedContext,
       constraints,
       expected_output,
       trace_id: req.get("x-request-id") || crypto.randomUUID(),
@@ -115,18 +197,22 @@ app.post("/task", async (req, res) => {
       source: "hermes",
       status: "accepted",
       created_at: envelope.received_at,
+      repo_name: requestedRepoName,
+      repo_path: resolvedRepoPath,
     });
 
     await forwardToOpenClaw(envelope);
 
     return res.status(202).json({
       task_id,
-      agent: AGENT_NAME,
+      agent: `${AGENT_NAME}`,
       status: "accepted",
       summary: `Accepted delegated task: ${goal}`,
       details: {
         conversation_id,
-        received_context_keys: Object.keys(context).sort(),
+        repo_name: requestedRepoName,
+        repo_path: resolvedRepoPath,
+        received_context_keys: Object.keys(normalizedContext).sort(),
         tools_allowed: Array.isArray(constraints.tools_allowed)
           ? constraints.tools_allowed
           : [],
@@ -138,7 +224,7 @@ app.post("/task", async (req, res) => {
   } catch (err) {
     return res.status(500).json({
       task_id: req.body?.task_id ?? null,
-      agent: AGENT_NAME,
+      agent: `${AGENT_NAME}`,
       status: "error",
       summary: "Failed to process task",
       details: err.message || "Unexpected server error",
@@ -149,12 +235,10 @@ app.post("/task", async (req, res) => {
 
 app.post("/result", async (req, res) => {
   try {
-    if (
-      !verifySignature(req, OPENCLAW_SECRET, req.get("x-openclaw-signature"))
-    ) {
+    if (!verifySignature(req, OPENCLAW_SECRET, req.get("x-openclaw-signature"))) {
       return res.status(401).json({
         task_id: null,
-        agent: AGENT_NAME,
+        agent: `${AGENT_NAME}`,
         status: "error",
         summary: "Unauthorized",
         details: "Invalid OpenClaw signature.",
@@ -167,7 +251,7 @@ app.post("/result", async (req, res) => {
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
       return res.status(400).json({
         task_id: null,
-        agent: AGENT_NAME,
+        agent: `${AGENT_NAME}`,
         status: "error",
         summary: "No result payload received",
         details:
@@ -188,7 +272,7 @@ app.post("/result", async (req, res) => {
     if (!task_id || typeof task_id !== "string") {
       return res.status(400).json({
         task_id: null,
-        agent: AGENT_NAME,
+        agent: `${AGENT_NAME}`,
         status: "error",
         summary: "Missing task_id",
         details: "The result payload must include a string field named task_id.",
@@ -201,7 +285,7 @@ app.post("/result", async (req, res) => {
     if (!existingRoute) {
       return res.status(404).json({
         task_id,
-        agent: AGENT_NAME,
+        agent: `${AGENT_NAME}`,
         status: "error",
         summary: "Unknown task_id",
         details: "No matching delegated task was found for this result.",
@@ -231,7 +315,7 @@ app.post("/result", async (req, res) => {
 
     return res.status(202).json({
       task_id,
-      agent: AGENT_NAME,
+      agent: `${AGENT_NAME}`,
       status: "accepted",
       summary: "OpenClaw result accepted for relay to Hermes",
       details: {
@@ -243,7 +327,7 @@ app.post("/result", async (req, res) => {
   } catch (err) {
     return res.status(500).json({
       task_id: req.body?.task_id ?? null,
-      agent: AGENT_NAME,
+      agent: `${AGENT_NAME}`,
       status: "error",
       summary: "Failed to process result",
       details: err.message || "Unexpected server error",
@@ -277,8 +361,7 @@ function verifySignature(req, secret, signatureHeader) {
 
 async function forwardToOpenClaw(envelope) {
   const url =
-    process.env.OPENCLAW_URL ||
-    "http://127.0.0.1:18789/v1/chat/completions";
+    process.env.OPENCLAW_URL || "http://127.0.0.1:18789/v1/chat/completions";
   const apiKey = process.env.OPENCLAW_API_KEY || "";
 
   if (!apiKey) {
@@ -300,6 +383,9 @@ async function forwardToOpenClaw(envelope) {
           task_id: envelope.task_id,
           conversation_id: envelope.conversation_id,
           goal: envelope.goal,
+          repo_name: envelope.repo_name,
+          repo_root: envelope.repo_root,
+          repo_path: envelope.repo_path,
           context: envelope.context,
           constraints: envelope.constraints,
           expected_output: envelope.expected_output,
@@ -324,13 +410,10 @@ async function forwardToOpenClaw(envelope) {
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    throw new Error(
-      `OpenClaw forward failed with status ${response.status}: ${text}`
-    );
+    throw new Error(`OpenClaw forward failed with status ${response.status}: ${text}`);
   }
 
   const json = await response.json().catch(() => ({ ok: true }));
-
   const completionText =
     json?.choices?.[0]?.message?.content ||
     "OpenClaw completed the delegated task";
@@ -346,6 +429,8 @@ async function forwardToOpenClaw(envelope) {
     status: "ok",
     summary: "OpenClaw completed the delegated task",
     details: {
+      repo_name: envelope.repo_name,
+      repo_path: envelope.repo_path,
       openclaw_response: completionText,
       raw_openclaw: json,
     },
@@ -374,16 +459,13 @@ async function forwardToHermes(envelope) {
 
   const headers = {
     "content-type": "application/json",
-    "x-request-id":
-      envelope.trace_id || envelope.task_id || crypto.randomUUID(),
   };
 
   if (hermesSecret) {
-    const digest = crypto
+    headers["x-task-worker-signature"] = `sha256=${crypto
       .createHmac("sha256", hermesSecret)
       .update(body)
-      .digest("hex");
-    headers["x-webhook-signature"] = digest;
+      .digest("hex")}`;
   }
 
   const response = await fetch(hermesUrl, {
@@ -394,12 +476,10 @@ async function forwardToHermes(envelope) {
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    throw new Error(
-      `Hermes forward failed with status ${response.status}: ${text}`
-    );
+    throw new Error(`Hermes relay failed with status ${response.status}: ${text}`);
   }
 
-  return await response.json().catch(() => ({ ok: true }));
+  return response;
 }
 
 app.listen(PORT, HOST, () => {
