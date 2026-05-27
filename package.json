@@ -6,18 +6,23 @@
   "scripts": {
     "start": "node task-worker.js",
     "dev": "node --watch task-worker.js",
+    "code-search": "node tools/searchCodebaseCli.js",
     "index-codebase": "node scripts/reindex-codebase.js",
     "cleanup-index": "node scripts/cleanup-repo-index.js",
-    "check": "node --check task-worker.js && node --check routes/search-codebase.js && node --check scripts/reindex-codebase.js && node --check services/code-memory/config.js && node --check services/code-memory/indexer.js && node --check services/code-memory/search.js",
+    "check": "node --check task-worker.js && node --check routes/search-codebase.js && node --check scripts/reindex-codebase.js && node --check scripts/cleanup-repo-index.js && node --check services/code-memory/config.js && node --check services/code-memory/indexer.js && node --check services/code-memory/search.js && node --check services/security/hmac.js && node --check tools/callCodeSearch.js && node --check tools/searchCodebaseCli.js",
     "reindex-codebase": "node scripts/reindex-codebase.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "chromadb": "^1.10.4",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
-    "chromadb": "^1.10.4",
     "ollama": "^0.5.16"
+  },
+  "devDependencies": {
+    "cli-table3": "^0.6.5",
+    "commander": "^14.0.3"
   }
 }

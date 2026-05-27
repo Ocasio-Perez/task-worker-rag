@@ -25,10 +25,12 @@ task-worker-rag/
 ├── scripts/
 │   └── reindex-codebase.js
 └── services/
-    └── code-memory/
-        ├── config.js
-        ├── indexer.js
-        └── search.js
+    ├── code-memory/
+    │   ├── config.js
+    │   ├── indexer.js
+    │   └── search.js
+    └── security/
+        └── hmac.js
 ```
 
 ## Runtime roles
@@ -57,7 +59,9 @@ Code-memory behavior is configured through these environment variables:
 
 | Variable | Purpose |
 |---|---|
-| `CODE_REPO_PATH` | Absolute path to the repository being indexed. |
+| `REPO_ROOT` | Root directory that contains repositories addressable by `repo_name`. |
+| `REPO_NAME` | Optional default repository name for CLI helpers. |
+| `CODE_REPO_NAME` | Optional default repository name for `tools/callCodeSearch.js`. |
 | `CHROMA_URL` | URL for the running ChromaDB instance. |
 | `CHROMA_COLLECTION` | Collection name used to store code chunks. |
 | `OLLAMA_HOST` | Ollama base URL. |
@@ -79,6 +83,7 @@ Expected request body:
 
 ```json
 {
+  "repo_name": "task-worker-rag",
   "query": "Where is HMAC validation implemented?",
   "n_results": 5
 }
@@ -90,6 +95,8 @@ Expected response shape:
 {
   "success": true,
   "query": "Where is HMAC validation implemented?",
+  "repo_name": "task-worker-rag",
+  "repo_path": "/home/larry/.hermes/repos/task-worker-rag",
   "count": 5,
   "results": [
     {
@@ -97,7 +104,9 @@ Expected response shape:
       "fullPath": "/absolute/path/to/repo/task-worker.js",
       "chunk": 0,
       "distance": 0.123,
-      "content": "..."
+      "preview": "...",
+      "repoName": "task-worker-rag",
+      "repoPath": "/home/larry/.hermes/repos/task-worker-rag"
     }
   ]
 }
@@ -113,21 +122,22 @@ Important details:
 - `/api/search-codebase` verifies the header `x-code-search-signature`
 - the signature format is `sha256=<hex digest>`
 - the digest is computed over the exact raw request body bytes
-- `crypto.timingSafeEqual` is used for comparison
+- shared helpers in `services/security/hmac.js` use `crypto.timingSafeEqual` for comparison
 
-This means earlier guidance to add raw-body capture and a new signature helper was redundant for this project. The existing HMAC pattern already covered the foundation, so the actual work was wiring the new route into that pattern.
+This keeps `/task`, `/result`, `/api/search-codebase`, and outbound Hermes callback signing on the same HMAC implementation.
 
 ## How indexing works
 
 The current indexing flow is:
 
-1. Read `CODE_REPO_PATH`
-2. Walk the repository recursively
-3. Skip ignored directories such as `.git`, `node_modules`, `dist`, and `build`
-4. Keep only configured file extensions
-5. Chunk file contents
-6. Generate embeddings with Ollama
-7. Upsert documents, embeddings, and metadata into ChromaDB
+1. Read `repo_name` from the CLI argument or `REPO_NAME`
+2. Resolve it below `REPO_ROOT`
+3. Walk the repository recursively
+4. Skip ignored directories such as `.git`, `node_modules`, `dist`, and `build`
+5. Keep only configured file extensions
+6. Chunk file contents
+7. Generate embeddings with Ollama
+8. Upsert documents, embeddings, and metadata into ChromaDB
 
 Chunk IDs are derived from relative file path plus chunk number so they remain stable across reindexing for unchanged files.
 
@@ -135,11 +145,12 @@ Chunk IDs are derived from relative file path plus chunk number so they remain s
 
 The current search flow is:
 
-1. Receive a query string over HTTP
+1. Receive `repo_name`, `query`, and optional `n_results` over HTTP
 2. Verify HMAC if `CODE_SEARCH_HMAC_SECRET` is set
-3. Embed the query with the configured Ollama model
-4. Query the configured Chroma collection
-5. Return ranked matching chunks with file metadata and distance values
+3. Resolve and validate the repository path below `REPO_ROOT`
+4. Embed the query with the configured Ollama model
+5. Query the configured Chroma collection
+6. Return ranked matching chunks with file metadata and distance values
 
 This is the retrieval layer that later callers such as Hermes-side helpers can use before planning or delegation.
 
@@ -156,7 +167,7 @@ npm run check
 ### Reindex repo
 
 ```bash
-npm run index-codebase
+npm run index-codebase -- task-worker-rag
 ```
 
 ### Start server
@@ -167,9 +178,19 @@ npm start
 
 ### Signed search request
 
+Readable terminal output:
+
+```bash
+npm run code-search -- --repo task-worker-rag "Where is HMAC validation implemented?"
+```
+
+Use `--content` to include full matching chunks or `--json` to inspect the raw response.
+
+Raw signed request:
+
 ```bash
 SECRET='<CODE_SEARCH_HMAC_SECRET>'
-BODY='{"query":"Where is HMAC validation implemented?","n_results":5}'
+BODY='{"repo_name":"task-worker-rag","query":"Where is HMAC validation implemented?","n_results":5}'
 DIGEST=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" -hex | sed 's/^.* //')
 SIG="sha256=$DIGEST"
 
@@ -187,7 +208,6 @@ The current implementation is a strong first version. The next improvements wort
 - richer metadata such as repo name, service name, or symbol type
 - incremental reindexing instead of full reindex passes
 - a Git hook, cron job, or systemd timer to keep embeddings fresh
-- a small client helper for trusted callers that need to sign and call `/api/search-codebase`
 
 ## Scope note
 
