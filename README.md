@@ -48,27 +48,36 @@ Caller
 
 ```text
 task-worker-rag/
-├── CODEMEMORY.md
 ├── README.md
+├── docs/
+│   ├── CODEMEMORY.md
+│   └── RUNBOOK.md
 ├── package.json
 ├── task-worker.js
 ├── routes/
+│   ├── read-file.js
 │   └── search-codebase.js
 ├── scripts/
 │   └── reindex-codebase.js
 └── services/
-    └── code-memory/
-        ├── config.js
-        ├── indexer.js
-        └── search.js
+    ├── code-memory/
+    │   ├── config.js
+    │   ├── indexer.js
+    │   ├── search.js
+    │   └── tools.js
+    └── security/
+        └── hmac.js
 ```
 
 ### File responsibilities
 
 - `task-worker.js` — Express server entrypoint, transport wiring, HMAC verification, OpenClaw forwarding, Hermes relay, and listener startup.
+- `routes/read-file.js` — HTTP route for signed repo-confined file reads.
 - `routes/search-codebase.js` — HTTP route for semantic code search.
 - `services/code-memory/indexer.js` — repository indexing into ChromaDB.
 - `services/code-memory/search.js` — semantic retrieval for code chunks.
+- `services/code-memory/tools.js` — shared contract layer for search and read-file code tools.
+- `services/security/hmac.js` — shared HMAC signing and timing-safe verification helpers.
 - `scripts/reindex-codebase.js` — one-shot indexing command entrypoint.
 
 ## API surface
@@ -78,6 +87,7 @@ task-worker-rag/
 | `POST` | `/task` | Accept delegated work from Hermes or another signed caller. |
 | `POST` | `/result` | Receive OpenClaw callbacks when callback mode is used. |
 | `POST` | `/api/search-codebase` | Run signed semantic repository search. |
+| `POST` | `/api/read-file` | Read a signed, repo-confined source file. |
 | `GET` | `/` | Basic service check. |
 | `GET` | `/health` | Health endpoint. |
 
@@ -142,9 +152,6 @@ HERMES_WEBHOOK_SECRET=
 
 # Repository routing
 REPO_ROOT=/home/larry/.hermes/repos
-
-# Optional single-repo code-memory indexing target
-CODE_REPO_PATH=/absolute/path/to/repo
 
 # Code search
 CODE_SEARCH_HMAC_SECRET=
@@ -211,8 +218,12 @@ These values must match across services:
   "scripts": {
     "start": "node task-worker.js",
     "dev": "node --watch task-worker.js",
+    "code-read": "node tools/readFileCli.js",
+    "code-search": "node tools/searchCodebaseCli.js",
     "index-codebase": "node scripts/reindex-codebase.js",
-    "check": "node --check task-worker.js && node --check routes/search-codebase.js && node --check scripts/reindex-codebase.js && node --check services/code-memory/config.js && node --check services/code-memory/indexer.js && node --check services/code-memory/search.js"
+    "cleanup-index": "node scripts/cleanup-repo-index.js",
+    "check": "node --check task-worker.js && node --check routes/search-codebase.js && node --check routes/read-file.js && node --check scripts/reindex-codebase.js && node --check scripts/cleanup-repo-index.js && node --check services/code-memory/config.js && node --check services/code-memory/indexer.js && node --check services/code-memory/search.js && node --check services/code-memory/tools.js && node --check services/security/hmac.js && node --check tools/callCodeSearch.js && node --check tools/callReadFile.js && node --check tools/searchCodebaseCli.js && node --check tools/readFileCli.js",
+    "reindex-codebase": "node scripts/reindex-codebase.js"
   }
 }
 ```
@@ -221,7 +232,10 @@ These values must match across services:
 
 - `npm start` — start the Express server.
 - `npm run dev` — run the server in watch mode.
-- `npm run index-codebase` — perform a full repository indexing pass.
+- `npm run code-read -- --repo <repo_name> <relative_path>` — call signed read-file and print file content.
+- `npm run code-search -- --repo <repo_name> "<query>"` — call signed code search and print readable terminal output.
+- `npm run index-codebase -- <repo_name>` — perform a full repository indexing pass.
+- `npm run cleanup-index -- <repo_name>` — delete indexed chunks for one repository.
 - `npm run check` — syntax-check the worker, route, script, and code-memory modules.
 
 ## Getting started
@@ -235,7 +249,7 @@ npm run check
 ### 2. Index the repository
 
 ```bash
-npm run index-codebase
+npm run index-codebase -- task-worker-rag
 ```
 
 A successful indexing run should report the repository path, indexed file count, indexed chunk count, and collection name.
@@ -252,9 +266,17 @@ The service should bind to the configured host and port and expose both delegate
 
 Unsigned requests are only acceptable when `CODE_SEARCH_HMAC_SECRET` is empty.
 
+For readable terminal output, use the helper CLI:
+
+```bash
+npm run code-search -- --repo task-worker-rag "Where is HMAC validation implemented?"
+```
+
+Use `--content` to print full matching chunks or `--json` to print the raw response.
+
 ```bash
 SECRET="$CODE_SEARCH_HMAC_SECRET"
-BODY='{"query":"Where is HMAC validation implemented?","n_results":5}'
+BODY='{"repo_name":"task-worker-rag","query":"Where is HMAC validation implemented?","n_results":5}'
 DIGEST="$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" -hex | awk '{print $2}')"
 SIG="sha256=$DIGEST"
 
@@ -270,6 +292,8 @@ Expected response shape:
 {
   "success": true,
   "query": "Where is HMAC validation implemented?",
+  "repo_name": "task-worker-rag",
+  "repo_path": "/home/larry/.hermes/repos/task-worker-rag",
   "count": 5,
   "results": [
     {
@@ -277,9 +301,48 @@ Expected response shape:
       "fullPath": "/absolute/path/to/repo/task-worker.js",
       "chunk": 0,
       "distance": 0.123,
-      "content": "..."
+      "preview": "...",
+      "repoName": "task-worker-rag",
+      "repoPath": "/home/larry/.hermes/repos/task-worker-rag"
     }
   ]
+}
+```
+
+## Read-file API example
+
+Use the helper CLI for readable output:
+
+```bash
+npm run code-read -- --repo task-worker-rag task-worker.js
+```
+
+Raw signed request:
+
+```bash
+SECRET="$CODE_SEARCH_HMAC_SECRET"
+BODY='{"repo_name":"task-worker-rag","relative_path":"task-worker.js","max_bytes":8000}'
+DIGEST="$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" -hex | awk '{print $2}')"
+SIG="sha256=$DIGEST"
+
+curl -v http://127.0.0.1:9000/api/read-file \
+  -H "Content-Type: application/json" \
+  -H "X-Code-Search-Signature: $SIG" \
+  -d "$BODY"
+```
+
+Expected response shape:
+
+```json
+{
+  "success": true,
+  "ok": true,
+  "repo_name": "task-worker-rag",
+  "relative_path": "task-worker.js",
+  "bytes": 8000,
+  "total_bytes": 12000,
+  "truncated": true,
+  "content": "..."
 }
 ```
 
