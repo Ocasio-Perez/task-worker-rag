@@ -1,5 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
+import { pathToFileURL } from "url";
 import { ChromaClient } from "chromadb";
 import ollama from "ollama";
 import {
@@ -141,7 +142,9 @@ async function main() {
   console.log(JSON.stringify(result, null, 2));
 }
 
-main().catch((error) => {
-  console.error("Indexing failed:", error);
-  process.exit(1);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    console.error("Indexing failed:", error);
+    process.exit(1);
+  });
+}

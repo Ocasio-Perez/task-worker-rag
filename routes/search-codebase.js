@@ -1,9 +1,11 @@
 import express from "express";
 import fs from "fs/promises";
 import { searchCodebase } from "../services/code-memory/search.js";
-import { resolveRepoPath } from "../services/code-memory/config.js";
+import { cleanRepoName, resolveRepoPath } from "../services/code-memory/config.js";
+import { hasValidHmacSignature } from "../services/security/hmac.js";
 
 const router = express.Router();
+const MAX_SEARCH_RESULTS = 25;
 
 function buildPreview(content, maxLength = 220) {
   if (!content || typeof content !== "string") return "";
@@ -21,8 +23,28 @@ function buildPreview(content, maxLength = 220) {
   return normalized.slice(0, maxLength).trimEnd() + "…";
 }
 
+function normalizeResultLimit(value) {
+  const requested = Number(value);
+  if (!Number.isInteger(requested) || requested <= 0) return undefined;
+  return Math.min(requested, MAX_SEARCH_RESULTS);
+}
+
 router.post("/search-codebase", async (req, res) => {
   try {
+    if (
+      !hasValidHmacSignature({
+        rawBody: req.rawBody,
+        secret: process.env.CODE_SEARCH_HMAC_SECRET || "",
+        signatureHeader: req.get("x-code-search-signature"),
+      })
+    ) {
+      return res.status(401).json({
+        success: false,
+        error: "bad_signature",
+        detail: "Invalid code-search signature.",
+      });
+    }
+
     const { query, repo_name, n_results, include_content } = req.body || {};
 
     if (!query || typeof query !== "string") {
@@ -32,7 +54,9 @@ router.post("/search-codebase", async (req, res) => {
       });
     }
 
-    if (!repo_name || typeof repo_name !== "string") {
+    const requestedRepoName = cleanRepoName(repo_name);
+
+    if (!requestedRepoName) {
       return res.status(400).json({
         success: false,
         error: "repo_name is required and must be a string",
@@ -41,23 +65,23 @@ router.post("/search-codebase", async (req, res) => {
       });
     }
 
-    const repoPath = resolveRepoPath(repo_name);
+    const repoPath = resolveRepoPath(requestedRepoName);
 
     const stat = await fs.stat(repoPath).catch(() => null);
     if (!stat || !stat.isDirectory()) {
       return res.status(404).json({
         success: false,
         error: "repo_not_found",
-        detail: `Repository not found: ${repo_name}`,
+        detail: `Repository not found: ${requestedRepoName}`,
       });
     }
 
-    const nResults = typeof n_results === "number" && n_results > 0 ? n_results : undefined;
+    const nResults = normalizeResultLimit(n_results);
 
     const rawResults = await searchCodebase({
       query,
       repoPath,
-      repoName: repo_name,
+      repoName: requestedRepoName,
       nResults,
     });
 
@@ -70,7 +94,7 @@ router.post("/search-codebase", async (req, res) => {
       distance: item.distance,
       preview: buildPreview(item.content),
       ...(include_content ? { content: item.content } : {}),
-      repoName: item.repoName || repo_name,
+      repoName: item.repoName || requestedRepoName,
       repoPath: item.repoPath || repoPath,
     }));
 
@@ -82,7 +106,7 @@ router.post("/search-codebase", async (req, res) => {
     return res.json({
       success: true,
       query,
-      repo_name,
+      repo_name: requestedRepoName,
       repo_path: repoPath,
       count: results.length,
       summary,

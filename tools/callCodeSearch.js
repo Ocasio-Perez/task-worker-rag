@@ -1,11 +1,18 @@
 import crypto from "node:crypto";
+import { createHmacSignature } from "../services/security/hmac.js";
 
 export async function callCodeSearch({
   query,
+  repoName = process.env.REPO_NAME || process.env.CODE_REPO_NAME || "",
   nResults = 5,
+  includeContent = false,
   requestId = crypto.randomUUID(),
   timeoutMs = 15000,
 }) {
+  if (!repoName) {
+    throw new Error("repoName is required");
+  }
+
   const url =
     process.env.CODE_SEARCH_URL ||
     "http://127.0.0.1:9000/api/search-codebase";
@@ -14,7 +21,9 @@ export async function callCodeSearch({
 
   const body = JSON.stringify({
     query,
+    repo_name: repoName,
     n_results: nResults,
+    ...(includeContent ? { include_content: true } : {}),
   });
 
   const headers = {
@@ -23,10 +32,7 @@ export async function callCodeSearch({
   };
 
   if (secret) {
-    headers["x-code-search-signature"] = `sha256=${crypto
-      .createHmac("sha256", secret)
-      .update(body)
-      .digest("hex")}`;
+    headers["x-code-search-signature"] = createHmacSignature(body, secret);
   }
 
   const response = await fetch(url, {

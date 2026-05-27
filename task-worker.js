@@ -2,15 +2,23 @@ import "dotenv/config";
 
 import express from "express";
 import crypto from "crypto";
-import path from "path";
 import fs from "fs/promises";
 import searchCodebaseRouter from "./routes/search-codebase.js";
+import {
+  CODE_MEMORY_CONFIG,
+  cleanRepoName,
+  resolveRepoPath,
+} from "./services/code-memory/config.js";
+import {
+  createHmacSignature,
+  hasValidHmacSignature,
+} from "./services/security/hmac.js";
 
 const app = express();
 const HOST = process.env.HOST || "127.0.0.1";
 const PORT = Number(process.env.PORT || 9000);
 const AGENT_NAME = process.env.AGENT_NAME || "your_agent_name";
-const REPO_ROOT = process.env.REPO_ROOT || "/home/larry/.hermes/repos";
+const REPO_ROOT = CODE_MEMORY_CONFIG.repoRoot;
 
 const HERMES_SECRET = process.env.HERMES_SECRET || "";
 const OPENCLAW_SECRET = process.env.OPENCLAW_SECRET || "";
@@ -32,27 +40,12 @@ app.get("/", (_req, res) => {
   res.send("Server is running");
 });
 
-function cleanRepoName(value) {
-  const repo = String(value || "").trim();
-  if (!repo) return "";
-  return repo.replace(/[^a-zA-Z0-9._-]/g, "").slice(0, 120);
-}
-
-function resolveRepoPath(repoName) {
-  const cleaned = cleanRepoName(repoName);
-  if (!cleaned) {
-    throw new Error("repo_name is required");
-  }
-
-  const resolved = path.resolve(REPO_ROOT, cleaned);
-  const rootResolved = path.resolve(REPO_ROOT);
-
-  if (resolved === rootResolved || !resolved.startsWith(`${rootResolved}${path.sep}`)) {
-    throw new Error("invalid repo_name");
-  }
-
-  return resolved;
-}
+app.get("/health", (_req, res) => {
+  res.json({
+    status: "ok",
+    agent: AGENT_NAME,
+  });
+});
 
 async function ensureRepoExists(repoName) {
   const repoPath = resolveRepoPath(repoName);
@@ -337,26 +330,11 @@ app.post("/result", async (req, res) => {
 });
 
 function verifySignature(req, secret, signatureHeader) {
-  if (!secret) {
-    return true;
-  }
-
-  if (!req.rawBody || !signatureHeader) {
-    return false;
-  }
-
-  const expected = `sha256=${crypto
-    .createHmac("sha256", secret)
-    .update(req.rawBody)
-    .digest("hex")}`;
-
-  const expectedBuf = Buffer.from(expected, "utf8");
-  const actualBuf = Buffer.from(signatureHeader, "utf8");
-
-  return (
-    expectedBuf.length === actualBuf.length &&
-    crypto.timingSafeEqual(expectedBuf, actualBuf)
-  );
+  return hasValidHmacSignature({
+    rawBody: req.rawBody,
+    secret,
+    signatureHeader,
+  });
 }
 
 async function forwardToOpenClaw(envelope) {
@@ -462,10 +440,9 @@ async function forwardToHermes(envelope) {
   };
 
   if (hermesSecret) {
-    headers["x-webhook-signature"] = crypto
-      .createHmac("sha256", hermesSecret)
-      .update(body)
-      .digest("hex");
+    headers["x-webhook-signature"] = createHmacSignature(body, hermesSecret, {
+      prefix: "",
+    });
   }
 
   console.log("[Hermes relay] posting", {
