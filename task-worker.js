@@ -369,7 +369,7 @@ async function forwardToOpenClaw(envelope) {
   }
 
   const body = JSON.stringify({
-    model: "openclaw/default",
+    model: process.env.OPENCLAW_MODEL || "openclaw",
     messages: [
       {
         role: "system",
@@ -462,11 +462,17 @@ async function forwardToHermes(envelope) {
   };
 
   if (hermesSecret) {
-    headers["x-task-worker-signature"] = `sha256=${crypto
+    headers["x-webhook-signature"] = crypto
       .createHmac("sha256", hermesSecret)
       .update(body)
-      .digest("hex")}`;
+      .digest("hex");
   }
+
+  console.log("[Hermes relay] posting", {
+    task_id: envelope.task_id,
+    url: hermesUrl,
+    signed: Boolean(hermesSecret),
+  });
 
   const response = await fetch(hermesUrl, {
     method: "POST",
@@ -474,8 +480,15 @@ async function forwardToHermes(envelope) {
     body,
   });
 
+  const text = await response.text().catch(() => "");
+
+  console.log("[Hermes relay] response", {
+    task_id: envelope.task_id,
+    status: response.status,
+    body: text,
+  });
+
   if (!response.ok) {
-    const text = await response.text().catch(() => "");
     throw new Error(`Hermes relay failed with status ${response.status}: ${text}`);
   }
 
