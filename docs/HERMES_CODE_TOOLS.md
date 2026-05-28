@@ -8,6 +8,9 @@ This repo includes a Hermes plugin that registers collision-safe code tools:
 The plugin is intentionally thin. It only signs JSON requests and forwards them
 to task-worker-rag's HTTP endpoints.
 
+The handlers accept both Hermes call shapes: a single params dictionary and
+keyword-style tool arguments.
+
 ## Install
 
 On the WSL machine where Hermes runs:

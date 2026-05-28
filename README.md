@@ -347,6 +347,39 @@ Expected response shape:
 }
 ```
 
+## Hermes code tools plugin
+
+Hermes agents need a plugin before they can call task-worker code tools by name.
+This repo includes one at `integrations/hermes/plugins/task-worker-code-tools/`.
+
+Install or update it on the WSL machine where Hermes runs:
+
+```bash
+cd ~/Development/task-worker-rag
+git pull --ff-only origin main
+
+mkdir -p ~/.hermes/plugins/task-worker-code-tools
+cp -R integrations/hermes/plugins/task-worker-code-tools/* \
+  ~/.hermes/plugins/task-worker-code-tools/
+```
+
+Enable it as a top-level plugin in `~/.hermes/config.yaml`:
+
+```yaml
+plugins:
+  enabled:
+    - task-worker-code-tools
+```
+
+The plugin registers collision-safe tool names:
+
+- `code_search`
+- `code_read_file`
+
+It accepts both Hermes handler calling styles: a single params object or keyword
+arguments. See `docs/HERMES_CODE_TOOLS.md` for the full install, environment,
+and smoke-test flow.
+
 ## Hermes webhook config
 
 Hermes must keep a webhook route so task-worker can post results back into the gateway, and local/private URLs must be allowed for this setup.
