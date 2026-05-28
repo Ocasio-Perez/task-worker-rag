@@ -11,6 +11,14 @@ to task-worker-rag's HTTP endpoints.
 The handlers accept both Hermes call shapes: a single params dictionary and
 keyword-style tool arguments.
 
+They also tolerate common model-selected aliases:
+
+- `path: /home/larry/.hermes/repos/<repo>` can be used instead of `repo_name`
+  for search.
+- `max_results` can be used instead of `n_results`.
+- `file`, `filename`, or a repo-contained `path` can be used instead of
+  `relative_path` for read-file.
+
 ## Install
 
 On the WSL machine where Hermes runs:

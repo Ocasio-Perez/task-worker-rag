@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import os
+import pathlib
 import urllib.error
 import urllib.request
 import uuid
@@ -86,9 +87,9 @@ def handle_code_search(params=None, **kwargs):
     _debug("code_search normalized params=", params)
 
     body = {
-        "repo_name": str(params.get("repo_name") or "").strip(),
+        "repo_name": _repo_name(params),
         "query": str(params.get("query") or "").strip(),
-        "n_results": _positive_int(params.get("n_results"), 5),
+        "n_results": _positive_int(params.get("n_results") or params.get("max_results"), 5),
     }
 
     if params.get("include_content"):
@@ -105,9 +106,10 @@ def handle_code_read_file(params=None, **kwargs):
     params = _params(params, kwargs)
     _debug("code_read_file normalized params=", params)
 
+    repo_name = _repo_name(params)
     body = {
-        "repo_name": str(params.get("repo_name") or "").strip(),
-        "relative_path": str(params.get("relative_path") or "").strip(),
+        "repo_name": repo_name,
+        "relative_path": _relative_path(params, repo_name),
         "max_bytes": _positive_int(params.get("max_bytes"), 50000),
     }
 
@@ -205,3 +207,40 @@ def _positive_int(value, default):
         return default
 
     return parsed if parsed > 0 else default
+
+
+def _repo_name(params):
+    explicit = str(params.get("repo_name") or params.get("repo") or "").strip()
+    if explicit:
+        return explicit
+
+    path = str(params.get("repo_path") or params.get("path") or "").strip()
+    if not path:
+        return ""
+
+    return pathlib.PurePosixPath(path).name
+
+
+def _relative_path(params, repo_name):
+    explicit = str(
+        params.get("relative_path")
+        or params.get("file")
+        or params.get("filename")
+        or ""
+    ).strip()
+    if explicit:
+        return explicit
+
+    path = str(params.get("path") or "").strip()
+    if not path:
+        return ""
+
+    pure_path = pathlib.PurePosixPath(path)
+    parts = pure_path.parts
+    if repo_name in parts:
+        repo_index = parts.index(repo_name)
+        relative_parts = parts[repo_index + 1 :]
+        if relative_parts:
+            return str(pathlib.PurePosixPath(*relative_parts))
+
+    return pure_path.name
