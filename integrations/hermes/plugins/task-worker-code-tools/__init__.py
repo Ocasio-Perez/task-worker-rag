@@ -80,8 +80,8 @@ def register(ctx):
     )
 
 
-def handle_code_search(params, **kwargs):
-    del kwargs
+def handle_code_search(params=None, **kwargs):
+    params = _params(params, kwargs)
 
     body = {
         "repo_name": str(params.get("repo_name") or "").strip(),
@@ -98,8 +98,8 @@ def handle_code_search(params, **kwargs):
     )
 
 
-def handle_code_read_file(params, **kwargs):
-    del kwargs
+def handle_code_read_file(params=None, **kwargs):
+    params = _params(params, kwargs)
 
     body = {
         "repo_name": str(params.get("repo_name") or "").strip(),
@@ -111,6 +111,12 @@ def handle_code_read_file(params, **kwargs):
         os.environ.get("CODE_READ_FILE_URL", DEFAULT_READ_FILE_URL),
         body,
     )
+
+
+def _params(params, kwargs):
+    merged = dict(params) if isinstance(params, dict) else {}
+    merged.update(kwargs)
+    return merged
 
 
 def _post_signed_json(url, body):
