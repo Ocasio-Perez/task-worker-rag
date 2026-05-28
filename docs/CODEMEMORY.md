@@ -38,10 +38,12 @@ task-worker-rag/
 Each file has a specific responsibility:
 
 - `task-worker.js` starts the Express server and mounts the `/api` router.
+- `routes/read-file.js` validates input, verifies HMAC, and returns repo-confined file content over HTTP.
 - `routes/search-codebase.js` validates input, verifies HMAC, and returns search results over HTTP.
 - `services/code-memory/config.js` centralizes repo path, Chroma, Ollama, chunking, and filtering settings.
 - `services/code-memory/indexer.js` walks the repo and writes embeddings into Chroma.
 - `services/code-memory/search.js` embeds queries and retrieves nearest chunks.
+- `services/code-memory/tools.js` exposes the shared search and read-file contracts used by routes and future in-process tool loops.
 - `scripts/reindex-codebase.js` runs the indexer through npm.
 
 ## Entry points
@@ -73,7 +75,7 @@ Code-memory behavior is configured through these environment variables:
 
 ## Search route
 
-The code-memory API route is:
+The code-memory search route is:
 
 ```text
 POST /api/search-codebase
@@ -112,6 +114,40 @@ Expected response shape:
 }
 ```
 
+## Read-file route
+
+The code-memory read-file route is:
+
+```text
+POST /api/read-file
+```
+
+Expected request body:
+
+```json
+{
+  "repo_name": "task-worker-rag",
+  "relative_path": "task-worker.js",
+  "max_bytes": 8000
+}
+```
+
+Expected response shape:
+
+```json
+{
+  "success": true,
+  "ok": true,
+  "repo_name": "task-worker-rag",
+  "repo_path": "/home/larry/.hermes/repos/task-worker-rag",
+  "relative_path": "task-worker.js",
+  "bytes": 8000,
+  "total_bytes": 12000,
+  "truncated": true,
+  "content": "..."
+}
+```
+
 ## HMAC protection
 
 The route now follows the same raw-body HMAC style already used elsewhere in task-worker.
@@ -124,7 +160,7 @@ Important details:
 - the digest is computed over the exact raw request body bytes
 - shared helpers in `services/security/hmac.js` use `crypto.timingSafeEqual` for comparison
 
-This keeps `/task`, `/result`, `/api/search-codebase`, and outbound Hermes callback signing on the same HMAC implementation.
+This keeps `/task`, `/result`, `/api/search-codebase`, `/api/read-file`, and outbound Hermes callback signing on the same HMAC implementation.
 
 ## How indexing works
 
@@ -195,6 +231,28 @@ DIGEST=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" -hex | sed '
 SIG="sha256=$DIGEST"
 
 curl -v http://127.0.0.1:9000/api/search-codebase \
+  -H "content-type: application/json" \
+  -H "x-code-search-signature: $SIG" \
+  -d "$BODY"
+```
+
+### Signed read-file request
+
+Readable terminal output:
+
+```bash
+npm run code-read -- --repo task-worker-rag task-worker.js
+```
+
+Raw signed request:
+
+```bash
+SECRET='<CODE_SEARCH_HMAC_SECRET>'
+BODY='{"repo_name":"task-worker-rag","relative_path":"task-worker.js","max_bytes":8000}'
+DIGEST=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" -hex | sed 's/^.* //')
+SIG="sha256=$DIGEST"
+
+curl -v http://127.0.0.1:9000/api/read-file \
   -H "content-type: application/json" \
   -H "x-code-search-signature: $SIG" \
   -d "$BODY"

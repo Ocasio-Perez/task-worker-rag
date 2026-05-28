@@ -1,10 +1,10 @@
 import express from "express";
-import { searchCodebaseTool } from "../services/code-memory/tools.js";
+import { readFileTool } from "../services/code-memory/tools.js";
 import { hasValidHmacSignature } from "../services/security/hmac.js";
 
 const router = express.Router();
 
-router.post("/search-codebase", async (req, res) => {
+router.post("/read-file", async (req, res) => {
   try {
     if (
       !hasValidHmacSignature({
@@ -21,21 +21,21 @@ router.post("/search-codebase", async (req, res) => {
       });
     }
 
-    const result = await searchCodebaseTool(req.body || {});
+    const result = await readFileTool(req.body || {});
     return res.json(result);
   } catch (error) {
     const status = error.status || 500;
-    const code = error.code || "codebase_search_failed";
+    const code = error.code || "read_file_failed";
 
     if (status >= 500) {
-      console.error("search-codebase error:", error);
+      console.error("read-file error:", error);
     }
 
     return res.status(status).json({
       success: false,
       ok: false,
       error: code,
-      detail: error.message,
+      detail: error.message || "Unexpected server error",
     });
   }
 });
