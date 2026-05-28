@@ -43,6 +43,15 @@ CODE_READ_FILE_URL=http://127.0.0.1:9000/api/read-file
 CODE_SEARCH_HMAC_SECRET=<same secret task-worker uses>
 ```
 
+To debug Hermes argument shapes, temporarily add:
+
+```env
+TASK_WORKER_CODE_TOOLS_DEBUG=1
+```
+
+This prints plugin handler inputs and outgoing task-worker request bodies to the
+Hermes logs. It does not print the HMAC secret.
+
 If Hermes runs through systemd, put those values in the Hermes environment file
 and restart:
 

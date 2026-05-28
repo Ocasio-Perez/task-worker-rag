@@ -81,7 +81,9 @@ def register(ctx):
 
 
 def handle_code_search(params=None, **kwargs):
+    _debug("code_search raw params=", params, " kwargs=", kwargs)
     params = _params(params, kwargs)
+    _debug("code_search normalized params=", params)
 
     body = {
         "repo_name": str(params.get("repo_name") or "").strip(),
@@ -99,7 +101,9 @@ def handle_code_search(params=None, **kwargs):
 
 
 def handle_code_read_file(params=None, **kwargs):
+    _debug("code_read_file raw params=", params, " kwargs=", kwargs)
     params = _params(params, kwargs)
+    _debug("code_read_file normalized params=", params)
 
     body = {
         "repo_name": str(params.get("repo_name") or "").strip(),
@@ -142,6 +146,7 @@ def _coerce_mapping(value):
 
 
 def _post_signed_json(url, body):
+    _debug("POST ", url, " body=", body)
     raw = json.dumps(body, separators=(",", ":")).encode("utf-8")
     secret = os.environ.get("CODE_SEARCH_HMAC_SECRET", "")
 
@@ -179,6 +184,18 @@ def _post_signed_json(url, body):
                 "detail": str(error),
             }
         )
+
+
+def _debug(*parts):
+    if os.environ.get("TASK_WORKER_CODE_TOOLS_DEBUG", "").lower() not in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        return
+
+    print("[task-worker-code-tools]", *parts, flush=True)
 
 
 def _positive_int(value, default):
