@@ -114,9 +114,31 @@ def handle_code_read_file(params=None, **kwargs):
 
 
 def _params(params, kwargs):
-    merged = dict(params) if isinstance(params, dict) else {}
-    merged.update(kwargs)
+    merged = _coerce_mapping(params)
+    merged.update(_coerce_mapping(kwargs))
+
+    for key in ("arguments", "args", "input", "parameters", "params"):
+        nested = _coerce_mapping(merged.get(key))
+        if nested:
+            merged.update(nested)
+
     return merged
+
+
+def _coerce_mapping(value):
+    if isinstance(value, dict):
+        return dict(value)
+
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+
+        if isinstance(parsed, dict):
+            return dict(parsed)
+
+    return {}
 
 
 def _post_signed_json(url, body):
