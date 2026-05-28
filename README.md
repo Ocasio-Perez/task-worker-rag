@@ -78,6 +78,7 @@ task-worker-rag/
 - `services/code-memory/search.js` — semantic retrieval for code chunks.
 - `services/code-memory/tools.js` — shared contract layer for search and read-file code tools.
 - `services/security/hmac.js` — shared HMAC signing and timing-safe verification helpers.
+- `integrations/hermes/plugins/task-worker-code-tools/` — Hermes plugin exposing `code_search` and `code_read_file`.
 - `scripts/reindex-codebase.js` — one-shot indexing command entrypoint.
 
 ## API surface

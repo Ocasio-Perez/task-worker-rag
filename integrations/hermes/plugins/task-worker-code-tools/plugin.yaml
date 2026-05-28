@@ -1,0 +1,3 @@
+name: task-worker-code-tools
+version: "1.0"
+description: Adds signed task-worker code_search and code_read_file tools.
