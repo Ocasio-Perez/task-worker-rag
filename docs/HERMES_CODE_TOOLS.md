@@ -19,6 +19,9 @@ They also tolerate common model-selected aliases:
 - `file`, `filename`, or a repo-contained `path` can be used instead of
   `relative_path` for read-file.
 
+`code_read_file` returns raw file content on successful reads so agents can echo
+the source exactly. Error responses remain structured JSON.
+
 ## Install
 
 On the WSL machine where Hermes runs:

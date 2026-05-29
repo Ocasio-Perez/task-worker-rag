@@ -113,10 +113,11 @@ def handle_code_read_file(params=None, **kwargs):
         "max_bytes": _positive_int(params.get("max_bytes"), 50000),
     }
 
-    return _post_signed_json(
+    result = _post_signed_json(
         os.environ.get("CODE_READ_FILE_URL", DEFAULT_READ_FILE_URL),
         body,
     )
+    return _read_file_content_or_result(result)
 
 
 def _params(params, kwargs):
@@ -145,6 +146,18 @@ def _coerce_mapping(value):
             return dict(parsed)
 
     return {}
+
+
+def _read_file_content_or_result(result):
+    try:
+        parsed = json.loads(result)
+    except (TypeError, json.JSONDecodeError):
+        return result
+
+    if parsed.get("ok") is True and isinstance(parsed.get("content"), str):
+        return parsed["content"]
+
+    return result
 
 
 def _post_signed_json(url, body):
