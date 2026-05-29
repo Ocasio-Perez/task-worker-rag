@@ -155,7 +155,13 @@ def _read_file_content_or_result(result):
         return result
 
     if parsed.get("ok") is True and isinstance(parsed.get("content"), str):
-        return parsed["content"]
+        return json.dumps(
+            {
+                "ok": True,
+                "content": parsed["content"],
+            },
+            separators=(",", ":"),
+        )
 
     return result
 
