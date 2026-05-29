@@ -7,6 +7,7 @@ developer-tool workflow.
 
 - install/update script for the Hermes plugin
 - Hermes-native slash commands:
+  - `/code-help`
   - `/code-status`
   - `/code-repos`
   - `/code-sync`
@@ -91,6 +92,7 @@ npm run code-status -- hello-world --json
 Hermes status:
 
 ```text
+/code-help
 /code-status
 ```
 
@@ -169,6 +171,7 @@ Repo lifecycle CLI:
 
 ```bash
 npm run code-repos -- list
+npm run code-repos -- add <git_url> [repo_name]
 npm run code-repos -- show <repo_name>
 npm run code-repos -- sync <repo_name>
 npm run code-repos -- reindex <repo_name>

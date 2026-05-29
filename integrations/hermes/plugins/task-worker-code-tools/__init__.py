@@ -17,6 +17,12 @@ DEFAULT_READ_FILE_URL = "http://127.0.0.1:9000/api/read-file"
 
 
 def register(ctx):
+    ctx.register_command(
+        "code-help",
+        handler=_handle_code_help_command,
+        description="Show task-worker code-memory slash command help.",
+    )
+
     ctx.register_tool(
         name="code_search",
         toolset="task_worker_code_tools",
@@ -170,6 +176,24 @@ def _handle_code_read_command(raw_args):
     )
 
     return _read_file_command_output(result)
+
+
+def _handle_code_help_command(raw_args):
+    del raw_args
+    return "\n".join(
+        [
+            "Task-worker code memory commands:",
+            "/code-status",
+            "/code-repos",
+            "/code-sync <repo_name>",
+            "/code-search <repo_name> \"query\" [n_results]",
+            "/code-read <repo_name> <relative_path> [max_bytes]",
+            "",
+            "Repos live under REPO_ROOT, usually ~/.hermes/repos.",
+            "After syncing a repo, reindex from task-worker-rag:",
+            "npm run sync-and-reindex -- <repo_name>",
+        ]
+    )
 
 
 def _handle_code_search_command(raw_args):

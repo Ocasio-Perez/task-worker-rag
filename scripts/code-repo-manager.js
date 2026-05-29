@@ -10,6 +10,8 @@ const repoArg = process.argv[3] || "";
 
 async function main() {
   switch (command) {
+    case "add":
+      return addRepo(process.argv[3] || "", process.argv[4] || "");
     case "list":
       return printRepos();
     case "show":
@@ -21,8 +23,29 @@ async function main() {
     case "cleanup":
       return runNpmScript("cleanup-index", requiredRepoName());
     default:
-      throw new Error(`Unknown command: ${command}\nUsage: npm run code-repos -- <list|show|sync|reindex|cleanup> [repo_name]`);
+      throw new Error(`Unknown command: ${command}\nUsage: npm run code-repos -- <add|list|show|sync|reindex|cleanup> [args]`);
   }
+}
+
+async function addRepo(gitUrl, requestedName) {
+  if (!gitUrl) {
+    throw new Error("Usage: npm run code-repos -- add <git_url> [repo_name]");
+  }
+
+  const repoName = cleanRepoName(requestedName || repoNameFromGitUrl(gitUrl));
+  if (!repoName) {
+    throw new Error("Could not infer repo_name; provide one explicitly");
+  }
+
+  await fs.mkdir(config.repoRoot, { recursive: true });
+  const repoPath = resolveRepoPath(repoName);
+  const stat = await fs.stat(repoPath).catch(() => null);
+  if (stat) {
+    throw new Error(`Repository already exists: ${repoPath}`);
+  }
+
+  await runPassthrough("git", ["clone", gitUrl, repoPath]);
+  console.log(`Added ${repoName}: ${repoPath}`);
 }
 
 async function printRepos() {
@@ -128,6 +151,12 @@ async function runPassthrough(bin, args) {
       else reject(new Error(`${bin} ${args.join(" ")} exited with ${code}`));
     });
   });
+}
+
+function repoNameFromGitUrl(gitUrl) {
+  const withoutTrailingSlash = String(gitUrl || "").replace(/\/+$/, "");
+  const lastSegment = withoutTrailingSlash.split(/[/:]/).pop() || "";
+  return lastSegment.replace(/\.git$/i, "");
 }
 
 main().catch((error) => {

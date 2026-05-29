@@ -8,6 +8,7 @@ This repo includes a Hermes plugin that registers collision-safe code tools:
 It also registers deterministic Hermes slash commands:
 
 - `/code-status`
+- `/code-help`
 - `/code-repos`
 - `/code-sync`
 - `/code-search`
@@ -104,6 +105,7 @@ plugin's Hermes-native slash commands:
 
 ```text
 /code-status
+/code-help
 /code-repos
 /code-sync task-worker-rag
 /code-read hello-world index.js

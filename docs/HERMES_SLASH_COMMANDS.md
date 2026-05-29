@@ -40,6 +40,12 @@ systemctl --user restart hermes-gateway.service
 
 ## Usage
 
+Show command help:
+
+```text
+/code-help
+```
+
 Show integration status:
 
 ```text
@@ -80,6 +86,7 @@ Search an indexed local repo:
 Arguments:
 
 - `/code-status`
+- `/code-help`
 - `/code-repos`
 - `/code-sync <repo_name>`
 - `/code-read <repo_name> <relative_path> [max_bytes]`
