@@ -177,6 +177,56 @@ The current indexing flow is:
 
 Chunk IDs are derived from relative file path plus chunk number so they remain stable across reindexing for unchanged files.
 
+## Repository corpus
+
+`REPO_ROOT` is the local corpus that Hermes code-memory tools can inspect. In
+this setup it is usually:
+
+```text
+~/.hermes/repos
+```
+
+Each child directory is addressed by `repo_name`:
+
+```text
+~/.hermes/repos/
+  hello-world/      -> repo_name: hello-world
+  task-worker-rag/  -> repo_name: task-worker-rag
+```
+
+Treat these repositories as searchable local mirrors. If your active development
+copy lives elsewhere, update the mirror first, then reindex:
+
+```bash
+cd ~/.hermes/repos/task-worker-rag
+git pull --ff-only
+
+cd ~/Development/task-worker-rag
+npm run index-codebase -- task-worker-rag
+```
+
+Reindex after meaningful code changes. The indexer upserts stable chunk IDs, so
+unchanged files keep stable identities while changed chunks are refreshed.
+
+## Indexing safety
+
+Treat indexed code as copied into a searchable memory system. ChromaDB stores
+embeddings plus document/metadata payloads for retrieved chunks, so do not index
+secrets or bulky generated content.
+
+Expected exclusions include:
+
+- `.env` and other secret-bearing env files
+- private keys, credentials, tokens, and certificates
+- `node_modules`
+- `.git`
+- generated build/cache directories such as `dist`, `build`, and coverage output
+- large binary or artifact directories
+
+The indexer applies ignored directory/file and extension filters from
+`services/code-memory/config.js`. Verify those filters before indexing a new
+class of repository.
+
 ## How search works
 
 The current search flow is:

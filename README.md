@@ -238,6 +238,15 @@ These values must match across services:
 - `npm run code-search -- --repo <repo_name> "<query>"` — call signed code search and print readable terminal output.
 - `npm run index-codebase -- <repo_name>` — perform a full repository indexing pass.
 - `npm run cleanup-index -- <repo_name>` — delete indexed chunks for one repository.
+
+Repos addressed by `repo_name` live under `REPO_ROOT`, usually
+`~/.hermes/repos`. Treat that directory as the local searchable corpus. If a
+repo is a mirror of an active development checkout, update the mirror and then
+run `npm run index-codebase -- <repo_name>` after meaningful code changes.
+
+Do not index secrets or generated dependency/build folders. Files such as
+`.env`, private keys, `node_modules`, `.git`, `dist`, and `build` should stay
+out of the ChromaDB-backed code-memory corpus.
 - `npm run check` — syntax-check the worker, route, script, and code-memory modules.
 
 ## Getting started
@@ -385,6 +394,16 @@ It also registers Hermes-native slash commands:
 It accepts both Hermes handler calling styles: a single params object or keyword
 arguments. See `docs/HERMES_CODE_TOOLS.md` and `docs/HERMES_SLASH_COMMANDS.md`
 for the full install, environment, and smoke-test flow.
+
+For local-only Hermes operation with Ollama models, prefer the slash commands:
+
+```text
+/code-read hello-world index.js
+/code-search hello-world "Hello world" 5
+```
+
+The `code_search` and `code_read_file` tools remain enabled for models/providers
+that reliably support Hermes structured tool calling.
 
 ## Hermes webhook config
 

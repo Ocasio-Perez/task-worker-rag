@@ -67,3 +67,17 @@ The plugin also registers LLM-callable tools:
 Use the slash commands when local models do not reliably emit structured tool
 calls. Use the tools when the active model/provider supports Hermes tool calling
 correctly.
+
+## Current Local Model Guidance
+
+Local Ollama models tested through Hermes' custom OpenAI-compatible provider
+were able to read tool descriptions, but did not reliably complete the full
+structured tool loop. Observed failures included:
+
+- printing function-call-like markup instead of executing the tool
+- explaining how to call a tool instead of calling it
+- executing a tool, then summarizing or inventing follow-up calls from the result
+
+For local-only operation, prefer `/code-read` and `/code-search` as the reliable
+workflow. Keep `code_search` and `code_read_file` enabled for future
+model/provider combinations that correctly support Hermes structured tool calls.
