@@ -81,6 +81,9 @@ task-worker-rag/
 - `integrations/hermes/plugins/task-worker-code-tools/` — Hermes plugin exposing `code_search`, `code_read_file`, `/code-search`, and `/code-read`.
 - `integrations/hermes/quick-commands/` — optional shell wrappers for direct local smoke tests.
 - `scripts/reindex-codebase.js` — one-shot indexing command entrypoint.
+- `scripts/code-memory-status.js` — local status checks for task-worker, ChromaDB, Ollama, repo root, and indexed chunks.
+- `scripts/install-hermes-integration.sh` — installs/updates the Hermes plugin and optional systemd templates.
+- `deploy/systemd/` — user-service and environment templates for repeatable installs.
 
 ## API surface
 
@@ -236,6 +239,7 @@ These values must match across services:
 - `npm run dev` — run the server in watch mode.
 - `npm run code-read -- --repo <repo_name> <relative_path>` — call signed read-file and print file content.
 - `npm run code-search -- --repo <repo_name> "<query>"` — call signed code search and print readable terminal output.
+- `npm run code-status -- [repo_name]` — check task-worker, ChromaDB, Ollama, repo root, and optional repo index health.
 - `npm run index-codebase -- <repo_name>` — perform a full repository indexing pass.
 - `npm run cleanup-index -- <repo_name>` — delete indexed chunks for one repository.
 
@@ -367,10 +371,7 @@ Install or update it on the WSL machine where Hermes runs:
 ```bash
 cd ~/Development/task-worker-rag
 git pull --ff-only origin main
-
-mkdir -p ~/.hermes/plugins/task-worker-code-tools
-cp -R integrations/hermes/plugins/task-worker-code-tools/* \
-  ~/.hermes/plugins/task-worker-code-tools/
+./scripts/install-hermes-integration.sh --restart-hermes
 ```
 
 Enable it as a top-level plugin in `~/.hermes/config.yaml`:
@@ -398,12 +399,16 @@ for the full install, environment, and smoke-test flow.
 For local-only Hermes operation with Ollama models, prefer the slash commands:
 
 ```text
+/code-status
 /code-read hello-world index.js
 /code-search hello-world "Hello world" 5
 ```
 
 The `code_search` and `code_read_file` tools remain enabled for models/providers
 that reliably support Hermes structured tool calling.
+
+For the full productized install and status workflow, see
+`docs/PRODUCT_MILESTONE_1.md`.
 
 ## Hermes webhook config
 

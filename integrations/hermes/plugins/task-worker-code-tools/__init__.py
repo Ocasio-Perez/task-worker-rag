@@ -93,6 +93,12 @@ def register(ctx):
         description="Search an indexed local repo.",
     )
 
+    ctx.register_command(
+        "code-status",
+        handler=_handle_code_status_command,
+        description="Show task-worker code-memory integration status.",
+    )
+
 
 def handle_code_search(params=None, **kwargs):
     _debug("code_search raw params=", params, " kwargs=", kwargs)
@@ -171,6 +177,30 @@ def _handle_code_search_command(raw_args):
     )
 
     return _format_search_command_output(result)
+
+
+def _handle_code_status_command(raw_args):
+    del raw_args
+    search_url = os.environ.get("CODE_SEARCH_URL", DEFAULT_SEARCH_URL)
+    read_url = os.environ.get("CODE_READ_FILE_URL", DEFAULT_READ_FILE_URL)
+    health_url = search_url.split("/api/", 1)[0].rstrip("/") + "/health"
+
+    try:
+        with urllib.request.urlopen(health_url, timeout=5) as response:
+            body = response.read().decode("utf-8")
+    except Exception as error:
+        return f"task-worker: FAIL {error}\nsearch_url: {search_url}\nread_file_url: {read_url}"
+
+    secret_state = "set" if os.environ.get("CODE_SEARCH_HMAC_SECRET") else "missing"
+    return "\n".join(
+        [
+            "task-worker: OK",
+            f"health: {body}",
+            f"search_url: {search_url}",
+            f"read_file_url: {read_url}",
+            f"code_search_hmac_secret: {secret_state}",
+        ]
+    )
 
 
 def _params(params, kwargs):

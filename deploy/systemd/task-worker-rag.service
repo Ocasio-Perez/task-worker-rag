@@ -1,0 +1,14 @@
+[Unit]
+Description=Task Worker RAG - Hermes local code memory bridge
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Development/task-worker-rag
+EnvironmentFile=%h/.config/systemd/user/task-worker-rag.env
+ExecStart=/usr/bin/env npm start
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

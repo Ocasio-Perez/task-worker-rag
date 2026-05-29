@@ -4,6 +4,7 @@ Hermes documents slash commands as a plugin feature via
 `ctx.register_command()`. This repo's `task-worker-code-tools` plugin registers
 two deterministic slash commands in addition to the LLM-callable tools:
 
+- `/code-status`
 - `/code-read`
 - `/code-search`
 
@@ -37,6 +38,12 @@ systemctl --user restart hermes-gateway.service
 
 ## Usage
 
+Show integration status:
+
+```text
+/code-status
+```
+
 Read a file from an indexed local repo:
 
 ```text
@@ -51,6 +58,7 @@ Search an indexed local repo:
 
 Arguments:
 
+- `/code-status`
 - `/code-read <repo_name> <relative_path> [max_bytes]`
 - `/code-search <repo_name> <query> [n_results]`
 
