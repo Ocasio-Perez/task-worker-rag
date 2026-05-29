@@ -8,6 +8,8 @@ developer-tool workflow.
 - install/update script for the Hermes plugin
 - Hermes-native slash commands:
   - `/code-status`
+  - `/code-repos`
+  - `/code-sync`
   - `/code-read`
   - `/code-search`
 - task-worker systemd unit and env templates
@@ -103,6 +105,18 @@ The repo-level status checks:
 
 ## Daily Use
 
+List available repos:
+
+```text
+/code-repos
+```
+
+Sync a git-backed repo mirror:
+
+```text
+/code-sync task-worker-rag
+```
+
 Read exact file content:
 
 ```text
@@ -125,6 +139,20 @@ cd ~/Development/task-worker-rag
 npm run index-codebase -- <repo_name>
 npm run code-status -- <repo_name>
 ```
+
+Repo lifecycle CLI:
+
+```bash
+npm run code-repos -- list
+npm run code-repos -- show <repo_name>
+npm run code-repos -- sync <repo_name>
+npm run code-repos -- reindex <repo_name>
+npm run code-repos -- cleanup <repo_name>
+```
+
+Use `/code-sync` or `npm run code-repos -- sync <repo_name>` to update the repo
+mirror from git. Use `npm run code-repos -- reindex <repo_name>` afterward to
+refresh ChromaDB.
 
 ## Why Slash Commands Are The Local Default
 

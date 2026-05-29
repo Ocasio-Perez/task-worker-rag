@@ -5,6 +5,8 @@ Hermes documents slash commands as a plugin feature via
 two deterministic slash commands in addition to the LLM-callable tools:
 
 - `/code-status`
+- `/code-repos`
+- `/code-sync`
 - `/code-read`
 - `/code-search`
 
@@ -44,6 +46,25 @@ Show integration status:
 /code-status
 ```
 
+List indexed-corpus repos:
+
+```text
+/code-repos
+```
+
+Sync a git-backed repo mirror:
+
+```text
+/code-sync task-worker-rag
+```
+
+`/code-sync` updates the repo mirror only. Reindex from the task-worker repo
+after sync:
+
+```bash
+npm run index-codebase -- task-worker-rag
+```
+
 Read a file from an indexed local repo:
 
 ```text
@@ -59,6 +80,8 @@ Search an indexed local repo:
 Arguments:
 
 - `/code-status`
+- `/code-repos`
+- `/code-sync <repo_name>`
 - `/code-read <repo_name> <relative_path> [max_bytes]`
 - `/code-search <repo_name> <query> [n_results]`
 

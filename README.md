@@ -238,6 +238,7 @@ These values must match across services:
 - `npm start` — start the Express server.
 - `npm run dev` — run the server in watch mode.
 - `npm run code-read -- --repo <repo_name> <relative_path>` — call signed read-file and print file content.
+- `npm run code-repos -- <list|show|sync|reindex|cleanup> [repo_name]` — manage repos in the local code-memory corpus.
 - `npm run code-search -- --repo <repo_name> "<query>"` — call signed code search and print readable terminal output.
 - `npm run code-status -- [repo_name]` — check task-worker, ChromaDB, Ollama, repo root, and optional repo index health.
 - `npm run index-codebase -- <repo_name>` — perform a full repository indexing pass.
@@ -389,6 +390,9 @@ The plugin registers collision-safe tool names:
 
 It also registers Hermes-native slash commands:
 
+- `/code-status`
+- `/code-repos`
+- `/code-sync`
 - `/code-search`
 - `/code-read`
 
@@ -400,6 +404,8 @@ For local-only Hermes operation with Ollama models, prefer the slash commands:
 
 ```text
 /code-status
+/code-repos
+/code-sync task-worker-rag
 /code-read hello-world index.js
 /code-search hello-world "Hello world" 5
 ```

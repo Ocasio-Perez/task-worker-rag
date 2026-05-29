@@ -6,6 +6,7 @@ import json
 import os
 import pathlib
 import shlex
+import subprocess
 import urllib.error
 import urllib.request
 import uuid
@@ -97,6 +98,18 @@ def register(ctx):
         "code-status",
         handler=_handle_code_status_command,
         description="Show task-worker code-memory integration status.",
+    )
+
+    ctx.register_command(
+        "code-repos",
+        handler=_handle_code_repos_command,
+        description="List local repos available to code-memory tools.",
+    )
+
+    ctx.register_command(
+        "code-sync",
+        handler=_handle_code_sync_command,
+        description="Run git pull --ff-only for a local repo mirror.",
     )
 
 
@@ -201,6 +214,65 @@ def _handle_code_status_command(raw_args):
             f"code_search_hmac_secret: {secret_state}",
         ]
     )
+
+
+def _handle_code_repos_command(raw_args):
+    del raw_args
+    repo_root = os.environ.get("REPO_ROOT", "/home/larry/.hermes/repos")
+    root_path = pathlib.Path(repo_root)
+    if not root_path.is_dir():
+        return f"repo_root missing: {repo_root}"
+
+    repos = []
+    for child in sorted(root_path.iterdir(), key=lambda item: item.name.lower()):
+        if child.is_dir():
+            suffix = " (git)" if (child / ".git").exists() else ""
+            repos.append(f"- {child.name}{suffix}")
+
+    if not repos:
+        return f"No repositories found under {repo_root}"
+
+    return "\n".join([f"Repositories under {repo_root}:"] + repos)
+
+
+def _handle_code_sync_command(raw_args):
+    try:
+        args = shlex.split(raw_args or "")
+    except ValueError as error:
+        return f"Usage: /code-sync <repo_name>\nError: {error}"
+
+    if len(args) != 1:
+        return "Usage: /code-sync <repo_name>"
+
+    repo_name = _clean_repo_name(args[0])
+    if not repo_name:
+        return "Usage: /code-sync <repo_name>"
+
+    repo_root = pathlib.Path(os.environ.get("REPO_ROOT", "/home/larry/.hermes/repos")).resolve()
+    repo_path = (repo_root / repo_name).resolve()
+    if repo_path == repo_root or repo_root not in repo_path.parents:
+        return f"invalid repo_name: {args[0]}"
+    if not repo_path.is_dir():
+        return f"Repository not found: {repo_name}"
+    if not (repo_path / ".git").exists():
+        return f"Repository is not a git repo: {repo_path}"
+
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(repo_path), "pull", "--ff-only"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except Exception as error:
+        return f"git pull failed: {error}"
+
+    output = (completed.stdout + completed.stderr).strip()
+    if completed.returncode != 0:
+        return f"git pull failed for {repo_name}:\n{output}"
+
+    return output or f"{repo_name} already up to date."
 
 
 def _params(params, kwargs):
@@ -369,6 +441,13 @@ def _repo_name(params):
         return ""
 
     return pathlib.PurePosixPath(path).name
+
+
+def _clean_repo_name(value):
+    return "".join(
+        char for char in str(value or "").strip()
+        if char.isalnum() or char in {".", "_", "-"}
+    )[:120]
 
 
 def _relative_path(params, repo_name):
