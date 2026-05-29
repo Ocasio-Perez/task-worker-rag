@@ -5,6 +5,7 @@ import hmac
 import json
 import os
 import pathlib
+import shlex
 import urllib.error
 import urllib.request
 import uuid
@@ -80,6 +81,18 @@ def register(ctx):
         description="Read a repo-confined source file through task-worker-rag.",
     )
 
+    ctx.register_command(
+        "code-read",
+        handler=_handle_code_read_command,
+        description="Read a file from an indexed local repo.",
+    )
+
+    ctx.register_command(
+        "code-search",
+        handler=_handle_code_search_command,
+        description="Search an indexed local repo.",
+    )
+
 
 def handle_code_search(params=None, **kwargs):
     _debug("code_search raw params=", params, " kwargs=", kwargs)
@@ -118,6 +131,46 @@ def handle_code_read_file(params=None, **kwargs):
         body,
     )
     return _read_file_content_or_result(result)
+
+
+def _handle_code_read_command(raw_args):
+    try:
+        args = shlex.split(raw_args or "")
+    except ValueError as error:
+        return f"Usage: /code-read <repo_name> <relative_path> [max_bytes]\nError: {error}"
+
+    if len(args) < 2:
+        return "Usage: /code-read <repo_name> <relative_path> [max_bytes]"
+
+    result = handle_code_read_file(
+        {
+            "repo_name": args[0],
+            "relative_path": args[1],
+            "max_bytes": args[2] if len(args) > 2 else 50000,
+        }
+    )
+
+    return _read_file_command_output(result)
+
+
+def _handle_code_search_command(raw_args):
+    try:
+        args = shlex.split(raw_args or "")
+    except ValueError as error:
+        return f"Usage: /code-search <repo_name> <query> [n_results]\nError: {error}"
+
+    if len(args) < 2:
+        return "Usage: /code-search <repo_name> <query> [n_results]"
+
+    result = handle_code_search(
+        {
+            "repo_name": args[0],
+            "query": args[1],
+            "n_results": args[2] if len(args) > 2 else 5,
+        }
+    )
+
+    return _format_search_command_output(result)
 
 
 def _params(params, kwargs):
@@ -164,6 +217,54 @@ def _read_file_content_or_result(result):
         )
 
     return result
+
+
+def _read_file_command_output(result):
+    try:
+        parsed = json.loads(result)
+    except (TypeError, json.JSONDecodeError):
+        return result
+
+    if parsed.get("ok") is True and isinstance(parsed.get("content"), str):
+        return parsed["content"]
+
+    return result
+
+
+def _format_search_command_output(result):
+    try:
+        parsed = json.loads(result)
+    except (TypeError, json.JSONDecodeError):
+        return result
+
+    if parsed.get("ok") is False or parsed.get("success") is False:
+        return result
+
+    results = parsed.get("results") or []
+    lines = [
+        parsed.get("summary")
+        or f"Found {len(results)} result(s) for {parsed.get('query') or 'query'}",
+    ]
+
+    for index, item in enumerate(results, start=1):
+        file_name = item.get("file") or item.get("fullPath") or "<unknown>"
+        chunk = item.get("chunk")
+        distance = item.get("distance")
+        preview = " ".join(str(item.get("preview") or "").split())
+        if len(preview) > 180:
+            preview = f"{preview[:177]}..."
+
+        meta = f"#{index} {file_name}"
+        if chunk is not None:
+            meta += f" chunk={chunk}"
+        if isinstance(distance, (int, float)):
+            meta += f" distance={distance:.4f}"
+
+        lines.append(meta)
+        if preview:
+            lines.append(f"  {preview}")
+
+    return "\n".join(lines)
 
 
 def _post_signed_json(url, body):

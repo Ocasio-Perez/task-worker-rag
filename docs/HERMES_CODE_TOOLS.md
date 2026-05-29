@@ -5,6 +5,11 @@ This repo includes a Hermes plugin that registers collision-safe code tools:
 - `code_search`
 - `code_read_file`
 
+It also registers deterministic Hermes slash commands:
+
+- `/code-search`
+- `/code-read`
+
 The plugin is intentionally thin. It only signs JSON requests and forwards them
 to task-worker-rag's HTTP endpoints.
 
@@ -88,3 +93,15 @@ Expected final answer:
 hello-world/index.js contains:
 console.log("Hello world");
 ```
+
+## Slash Commands
+
+For local models that do not reliably emit structured tool calls, use the
+plugin's Hermes-native slash commands:
+
+```text
+/code-read hello-world index.js
+/code-search hello-world "Hello world" 5
+```
+
+See `docs/HERMES_SLASH_COMMANDS.md` for details.

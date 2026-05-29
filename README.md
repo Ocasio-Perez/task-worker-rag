@@ -78,8 +78,8 @@ task-worker-rag/
 - `services/code-memory/search.js` — semantic retrieval for code chunks.
 - `services/code-memory/tools.js` — shared contract layer for search and read-file code tools.
 - `services/security/hmac.js` — shared HMAC signing and timing-safe verification helpers.
-- `integrations/hermes/plugins/task-worker-code-tools/` — Hermes plugin exposing `code_search` and `code_read_file`.
-- `integrations/hermes/quick-commands/` — deterministic local code-inspection command wrappers for Hermes quick commands.
+- `integrations/hermes/plugins/task-worker-code-tools/` — Hermes plugin exposing `code_search`, `code_read_file`, `/code-search`, and `/code-read`.
+- `integrations/hermes/quick-commands/` — optional shell wrappers for direct local smoke tests.
 - `scripts/reindex-codebase.js` — one-shot indexing command entrypoint.
 
 ## API surface
@@ -377,9 +377,14 @@ The plugin registers collision-safe tool names:
 - `code_search`
 - `code_read_file`
 
+It also registers Hermes-native slash commands:
+
+- `/code-search`
+- `/code-read`
+
 It accepts both Hermes handler calling styles: a single params object or keyword
-arguments. See `docs/HERMES_CODE_TOOLS.md` for the full install, environment,
-and smoke-test flow.
+arguments. See `docs/HERMES_CODE_TOOLS.md` and `docs/HERMES_SLASH_COMMANDS.md`
+for the full install, environment, and smoke-test flow.
 
 ## Hermes webhook config
 
