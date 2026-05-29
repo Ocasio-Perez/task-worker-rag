@@ -17,6 +17,9 @@ developer-tool workflow.
 - shared env template
 - operator status command:
   - `npm run code-status`
+- decoupled Vite dashboard:
+  - `npm run dashboard:dev`
+  - `npm run dashboard:build`
 
 ## Install Or Update Hermes Integration
 
@@ -105,6 +108,32 @@ The repo-level status checks:
 - optional repo directory
 - optional repo git branch / clean working tree
 - optional indexed chunk count for a repo
+
+## Dashboard
+
+Install dashboard dependencies and run the Vite dev server:
+
+```bash
+npm run dashboard:install
+npm run dashboard:dev
+```
+
+Build the dashboard for task-worker to serve:
+
+```bash
+npm run dashboard:build
+```
+
+Open:
+
+```text
+http://127.0.0.1:9000/dashboard/
+```
+
+The dashboard is read-only and uses:
+
+- `GET /api/dashboard/status`
+- `GET /api/dashboard/repos`
 
 ## Test And Verification
 

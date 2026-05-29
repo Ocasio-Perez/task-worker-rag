@@ -4,6 +4,7 @@ import express from "express";
 import crypto from "crypto";
 import fs from "fs/promises";
 import { pathToFileURL } from "url";
+import dashboardRouter from "./routes/dashboard.js";
 import readFileRouter from "./routes/read-file.js";
 import searchCodebaseRouter from "./routes/search-codebase.js";
 import {
@@ -35,6 +36,7 @@ app.use(
 
 app.use("/api", searchCodebaseRouter);
 app.use("/api", readFileRouter);
+app.use(dashboardRouter);
 
 const seenTaskIds = new Set();
 const routeTable = new Map();

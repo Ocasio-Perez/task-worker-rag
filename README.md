@@ -84,6 +84,7 @@ task-worker-rag/
 - `scripts/code-memory-status.js` — local status checks for task-worker, ChromaDB, Ollama, repo root, and indexed chunks.
 - `scripts/install-hermes-integration.sh` — installs/updates the Hermes plugin and optional systemd templates.
 - `deploy/systemd/` — user-service and environment templates for repeatable installs.
+- `dashboard/` — decoupled Vite React dashboard using Ant Design.
 
 ## API surface
 
@@ -93,6 +94,8 @@ task-worker-rag/
 | `POST` | `/result` | Receive OpenClaw callbacks when callback mode is used. |
 | `POST` | `/api/search-codebase` | Run signed semantic repository search. |
 | `POST` | `/api/read-file` | Read a signed, repo-confined source file. |
+| `GET` | `/api/dashboard/status` | Read dashboard health/status summary. |
+| `GET` | `/api/dashboard/repos` | Read dashboard repo corpus summary. |
 | `GET` | `/` | Basic service check. |
 | `GET` | `/health` | Health endpoint. |
 
@@ -223,6 +226,9 @@ These values must match across services:
   "scripts": {
     "start": "node task-worker.js",
     "dev": "node --watch task-worker.js",
+    "dashboard:build": "npm --prefix dashboard run build",
+    "dashboard:dev": "npm --prefix dashboard run dev",
+    "dashboard:install": "npm --prefix dashboard install",
     "code-read": "node tools/readFileCli.js",
     "code-search": "node tools/searchCodebaseCli.js",
     "index-codebase": "node scripts/reindex-codebase.js",
@@ -237,6 +243,9 @@ These values must match across services:
 
 - `npm start` — start the Express server.
 - `npm run dev` — run the server in watch mode.
+- `npm run dashboard:install` — install dashboard package dependencies.
+- `npm run dashboard:dev` — run the Vite dashboard dev server.
+- `npm run dashboard:build` — build the dashboard for task-worker to serve at `/dashboard/`.
 - `npm run code-read -- --repo <repo_name> <relative_path>` — call signed read-file and print file content.
 - `npm run code-repos -- <list|show|sync|reindex|cleanup> [repo_name]` — manage repos in the local code-memory corpus.
 - `npm run code-repos -- add <git_url> [repo_name]` — clone a repo into `REPO_ROOT`.
@@ -426,6 +435,32 @@ whether the Hermes gateway environment has `CODE_SEARCH_HMAC_SECRET` set.
 `npm test` includes signed HTTP route tests for `/api/read-file`; these run on
 normal local hosts and skip only in sandboxes that forbid binding a local test
 port.
+
+## Dashboard
+
+The repo includes a decoupled Vite React dashboard using Ant Design.
+
+Development:
+
+```bash
+npm start
+npm run dashboard:install
+npm run dashboard:dev
+```
+
+Production/local build:
+
+```bash
+npm run dashboard:build
+```
+
+Open the built dashboard through task-worker:
+
+```text
+http://127.0.0.1:9000/dashboard/
+```
+
+See `docs/DASHBOARD.md` for details.
 
 ## Hermes webhook config
 

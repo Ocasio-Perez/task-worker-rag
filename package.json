@@ -6,6 +6,9 @@
   "scripts": {
     "start": "node task-worker.js",
     "dev": "node --watch task-worker.js",
+    "dashboard:build": "npm --prefix dashboard run build",
+    "dashboard:dev": "npm --prefix dashboard run dev",
+    "dashboard:install": "npm --prefix dashboard install",
     "test": "node --test",
     "code-read": "node tools/readFileCli.js",
     "code-repos": "node scripts/code-repo-manager.js",
@@ -14,7 +17,7 @@
     "sync-and-reindex": "node scripts/sync-and-reindex.js",
     "index-codebase": "node scripts/reindex-codebase.js",
     "cleanup-index": "node scripts/cleanup-repo-index.js",
-    "check": "node --check task-worker.js && node --check routes/search-codebase.js && node --check routes/read-file.js && node --check scripts/code-memory-status.js && node --check scripts/code-repo-manager.js && node --check scripts/sync-and-reindex.js && node --check scripts/reindex-codebase.js && node --check scripts/cleanup-repo-index.js && node --check services/code-memory/config.js && node --check services/code-memory/indexer.js && node --check services/code-memory/search.js && node --check services/code-memory/tools.js && node --check services/security/hmac.js && node --check tools/callCodeSearch.js && node --check tools/callReadFile.js && node --check tools/searchCodebaseCli.js && node --check tools/readFileCli.js && node --check test/hmac.test.js && node --check test/read-file-tool.test.js && node --check test/read-file-route.test.js && python3 -c \"import ast,pathlib; ast.parse(pathlib.Path('integrations/hermes/plugins/task-worker-code-tools/__init__.py').read_text())\"",
+    "check": "node --check task-worker.js && node --check routes/dashboard.js && node --check routes/search-codebase.js && node --check routes/read-file.js && node --check scripts/code-memory-status.js && node --check scripts/code-repo-manager.js && node --check scripts/sync-and-reindex.js && node --check scripts/reindex-codebase.js && node --check scripts/cleanup-repo-index.js && node --check services/code-memory/config.js && node --check services/code-memory/indexer.js && node --check services/code-memory/search.js && node --check services/code-memory/status.js && node --check services/code-memory/tools.js && node --check services/security/hmac.js && node --check tools/callCodeSearch.js && node --check tools/callReadFile.js && node --check tools/searchCodebaseCli.js && node --check tools/readFileCli.js && node --check test/hmac.test.js && node --check test/read-file-tool.test.js && node --check test/read-file-route.test.js && python3 -c \"import ast,pathlib; ast.parse(pathlib.Path('integrations/hermes/plugins/task-worker-code-tools/__init__.py').read_text())\"",
     "reindex-codebase": "node scripts/reindex-codebase.js"
   },
   "keywords": [],
