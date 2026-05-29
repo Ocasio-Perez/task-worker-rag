@@ -420,6 +420,13 @@ that reliably support Hermes structured tool calling.
 For the full productized install and status workflow, see
 `docs/PRODUCT_MILESTONE_1.md`.
 
+The installer also checks whether `~/.hermes/config.yaml` enables the plugin and
+whether the Hermes gateway environment has `CODE_SEARCH_HMAC_SECRET` set.
+
+`npm test` includes signed HTTP route tests for `/api/read-file`; these run on
+normal local hosts and skip only in sandboxes that forbid binding a local test
+port.
+
 ## Hermes webhook config
 
 Hermes must keep a webhook route so task-worker can post results back into the gateway, and local/private URLs must be allowed for this setup.

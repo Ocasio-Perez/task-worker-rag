@@ -3,6 +3,7 @@ import "dotenv/config";
 import express from "express";
 import crypto from "crypto";
 import fs from "fs/promises";
+import { pathToFileURL } from "url";
 import readFileRouter from "./routes/read-file.js";
 import searchCodebaseRouter from "./routes/search-codebase.js";
 import {
@@ -474,6 +475,10 @@ async function forwardToHermes(envelope) {
   return response;
 }
 
-app.listen(PORT, HOST, () => {
-  console.log(`${AGENT_NAME} listening on http://${HOST}:${PORT}`);
-});
+export { app };
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  app.listen(PORT, HOST, () => {
+    console.log(`${AGENT_NAME} listening on http://${HOST}:${PORT}`);
+  });
+}

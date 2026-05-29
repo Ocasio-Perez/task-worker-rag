@@ -103,6 +103,7 @@ The repo-level status checks:
 - ChromaDB heartbeat
 - `REPO_ROOT`
 - optional repo directory
+- optional repo git branch / clean working tree
 - optional indexed chunk count for a repo
 
 ## Test And Verification
@@ -129,6 +130,13 @@ The current test suite covers:
 - ignored directory rejection (`node_modules`)
 - secret env file rejection (`.env`)
 - symlink escape rejection
+- signed HTTP `/api/read-file` success
+- signed HTTP bad-signature rejection
+- signed HTTP traversal and ignored-file rejection
+
+The signed HTTP route tests start task-worker on a temporary local port. In
+sandboxed environments that forbid local listening sockets, those tests skip
+with a message. They should run normally on the WSL host.
 
 ## Daily Use
 

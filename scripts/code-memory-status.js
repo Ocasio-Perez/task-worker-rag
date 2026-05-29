@@ -2,6 +2,7 @@ import "dotenv/config";
 
 import fs from "node:fs/promises";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import { ChromaClient } from "chromadb";
 import { CODE_MEMORY_CONFIG as config, cleanRepoName, resolveRepoPath } from "../services/code-memory/config.js";
 
@@ -18,6 +19,7 @@ async function main() {
 
   if (repoName) {
     checks.push(await checkRepo(repoName));
+    checks.push(await checkRepoGit(repoName));
     checks.push(await checkRepoIndex(repoName));
   }
 
@@ -111,6 +113,23 @@ async function checkRepo(repoName) {
   }
 }
 
+async function checkRepoGit(repoName) {
+  try {
+    const repoPath = resolveRepoPath(repoName);
+    const gitStat = await fs.stat(path.join(repoPath, ".git")).catch(() => null);
+    if (!gitStat) {
+      return pass("repo-git", "not a git repo");
+    }
+
+    const branch = (await runCapture("git", ["-C", repoPath, "branch", "--show-current"])).trim();
+    const status = (await runCapture("git", ["-C", repoPath, "status", "--short"])).trim();
+    const detail = `${branch || "<detached>"}; working tree ${status ? "dirty" : "clean"}`;
+    return pass("repo-git", detail);
+  } catch (error) {
+    return fail("repo-git", error.message);
+  }
+}
+
 async function checkRepoIndex(repoName) {
   try {
     const client = new ChromaClient({ path: config.chromaUrl });
@@ -123,6 +142,24 @@ async function checkRepoIndex(repoName) {
   } catch (error) {
     return fail("repo-index", error.message);
   }
+}
+
+async function runCapture(bin, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("close", (code) => {
+      if (code === 0) resolve(stdout);
+      else reject(new Error(stderr || `${bin} exited with ${code}`));
+    });
+  });
 }
 
 async function countRepoChunks(collection, repoName) {
