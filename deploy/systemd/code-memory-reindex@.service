@@ -1,0 +1,9 @@
+[Unit]
+Description=Code memory sync and reindex for %i
+After=network-online.target task-worker-rag.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Development/task-worker-rag
+EnvironmentFile=%h/.config/systemd/user/task-worker-rag.env
+ExecStart=/usr/bin/env npm run sync-and-reindex -- %i

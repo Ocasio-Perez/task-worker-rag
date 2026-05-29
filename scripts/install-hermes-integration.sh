@@ -54,6 +54,8 @@ echo "Installed helper scripts: $hermes_home/quick-commands"
 if [[ $with_systemd -eq 1 ]]; then
   mkdir -p "$systemd_user_dir"
   cp "$repo_dir/deploy/systemd/task-worker-rag.service" "$systemd_user_dir/task-worker-rag.service"
+  cp "$repo_dir/deploy/systemd/code-memory-reindex@.service" "$systemd_user_dir/code-memory-reindex@.service"
+  cp "$repo_dir/deploy/systemd/code-memory-reindex@.timer" "$systemd_user_dir/code-memory-reindex@.timer"
   if [[ ! -f "$systemd_user_dir/task-worker-rag.env" ]]; then
     cp "$repo_dir/deploy/systemd/task-worker-rag.env.example" "$systemd_user_dir/task-worker-rag.env"
     echo "Created env template: $systemd_user_dir/task-worker-rag.env"
@@ -62,7 +64,7 @@ if [[ $with_systemd -eq 1 ]]; then
     echo "Env file already exists: $systemd_user_dir/task-worker-rag.env"
   fi
   systemctl --user daemon-reload
-  echo "Installed systemd unit: $systemd_user_dir/task-worker-rag.service"
+  echo "Installed systemd units: task-worker-rag.service, code-memory-reindex@.service, code-memory-reindex@.timer"
 fi
 
 if [[ $restart_hermes -eq 1 ]]; then

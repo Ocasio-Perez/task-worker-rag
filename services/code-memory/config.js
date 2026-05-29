@@ -29,6 +29,10 @@ export const CODE_MEMORY_CONFIG = {
     "__pycache__",
   ]),
   ignoreFiles: new Set([
+    ".env",
+    ".env.local",
+    ".env.production",
+    ".env.development",
     "package-lock.json",
     "pnpm-lock.yaml",
     "yarn.lock",

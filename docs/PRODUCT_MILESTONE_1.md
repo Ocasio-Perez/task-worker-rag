@@ -103,6 +103,31 @@ The repo-level status checks:
 - optional repo directory
 - optional indexed chunk count for a repo
 
+## Test And Verification
+
+Run static syntax checks:
+
+```bash
+npm run check
+```
+
+Run unit tests:
+
+```bash
+npm test
+```
+
+The current test suite covers:
+
+- HMAC signature creation and verification
+- bad-signature rejection
+- empty-secret local development behavior
+- repo-confined file reads
+- path traversal rejection
+- ignored directory rejection (`node_modules`)
+- secret env file rejection (`.env`)
+- symlink escape rejection
+
 ## Daily Use
 
 List available repos:
@@ -148,11 +173,37 @@ npm run code-repos -- show <repo_name>
 npm run code-repos -- sync <repo_name>
 npm run code-repos -- reindex <repo_name>
 npm run code-repos -- cleanup <repo_name>
+npm run sync-and-reindex -- <repo_name>
 ```
 
 Use `/code-sync` or `npm run code-repos -- sync <repo_name>` to update the repo
 mirror from git. Use `npm run code-repos -- reindex <repo_name>` afterward to
 refresh ChromaDB.
+
+Use `npm run sync-and-reindex -- <repo_name>` when you want both steps in one
+operator command.
+
+## Optional Reindex Timer
+
+When installed with `--with-systemd`, the repo includes a template timer for
+daily sync-and-reindex jobs:
+
+```bash
+systemctl --user enable --now code-memory-reindex@task-worker-rag.timer
+systemctl --user list-timers 'code-memory-reindex@*'
+```
+
+Run one immediately:
+
+```bash
+systemctl --user start code-memory-reindex@task-worker-rag.service
+```
+
+Inspect logs:
+
+```bash
+journalctl --user -u code-memory-reindex@task-worker-rag.service -n 100 --no-pager
+```
 
 ## Why Slash Commands Are The Local Default
 

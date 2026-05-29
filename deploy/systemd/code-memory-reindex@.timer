@@ -1,0 +1,9 @@
+[Unit]
+Description=Daily code memory sync and reindex for %i
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target

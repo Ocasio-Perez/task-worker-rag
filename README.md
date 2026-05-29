@@ -241,6 +241,7 @@ These values must match across services:
 - `npm run code-repos -- <list|show|sync|reindex|cleanup> [repo_name]` — manage repos in the local code-memory corpus.
 - `npm run code-search -- --repo <repo_name> "<query>"` — call signed code search and print readable terminal output.
 - `npm run code-status -- [repo_name]` — check task-worker, ChromaDB, Ollama, repo root, and optional repo index health.
+- `npm run sync-and-reindex -- <repo_name>` — pull a git-backed repo mirror and refresh its ChromaDB index.
 - `npm run index-codebase -- <repo_name>` — perform a full repository indexing pass.
 - `npm run cleanup-index -- <repo_name>` — delete indexed chunks for one repository.
 
@@ -253,6 +254,7 @@ Do not index secrets or generated dependency/build folders. Files such as
 `.env`, private keys, `node_modules`, `.git`, `dist`, and `build` should stay
 out of the ChromaDB-backed code-memory corpus.
 - `npm run check` — syntax-check the worker, route, script, and code-memory modules.
+- `npm test` — run unit tests for HMAC and repo-confined read-file safety.
 
 ## Getting started
 
