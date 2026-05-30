@@ -50,7 +50,12 @@ Caller
 task-worker-rag/
 ├── README.md
 ├── docs/
+│   ├── BUSINESS_STRATEGY.md
 │   ├── CODEMEMORY.md
+│   ├── DASHBOARD.md
+│   ├── HERMES_CODE_TOOLS.md
+│   ├── HERMES_SLASH_COMMANDS.md
+│   ├── PRODUCT_MILESTONE_1.md
 │   └── RUNBOOK.md
 ├── package.json
 ├── task-worker.js
