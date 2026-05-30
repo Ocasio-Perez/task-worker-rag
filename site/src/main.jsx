@@ -40,9 +40,9 @@ function App() {
             <h2>AI coding gets awkward when the code is private.</h2>
           </div>
           <p>
-            Teams want agents that understand their repositories, but uploading source code to hosted tools can be
-            risky, blocked, or simply not aligned with how they work. SourceVault keeps code memory local while giving
-            agents a reliable way to inspect repositories.
+            Teams want Hermes to understand their repositories, but uploading source code to hosted tools can be risky,
+            blocked, or simply not aligned with how they work. SourceVault keeps code memory local while giving Hermes
+            a reliable way to search and read private repositories.
           </p>
         </div>
       </section>
@@ -50,25 +50,30 @@ function App() {
         <p className="eyebrow">How It Works</p>
         <h2>Local search, exact reads, clear operator control.</h2>
         <div className="flow">
-          {["Repos", "ChromaDB", "Task-worker APIs", "Hermes Commands", "Dashboard"].map((item, index) => (
-            <React.Fragment key={item}>
-              <div className="flow-node">{item}</div>
-              {index < 4 ? <div className="flow-line" /> : null}
-            </React.Fragment>
-          ))}
+          {["Private Repos", "Local Code Index", "Signed Code Access", "Hermes Commands", "Dashboard"].map(
+            (item, index) => (
+              <React.Fragment key={item}>
+                <div className="flow-node">{item}</div>
+                {index < 4 ? <div className="flow-line" /> : null}
+              </React.Fragment>
+            ),
+          )}
         </div>
         <div className="feature-grid">
           <Feature title="Local-first" text="Runs on WSL/Linux with local Ollama embeddings and a local ChromaDB store." />
           <Feature title="Command-driven" text="Hermes slash commands avoid fragile model tool-calling loops." />
           <Feature title="Repo-safe" text="Signed APIs, repo confinement, ignored secret files, and path escape checks." />
-          <Feature title="Installable" text="Systemd templates, prebuilt workflows, status checks, and dashboard visibility." />
+          <Feature
+            title="Done-for-you"
+            text="I install, configure, index, test, and hand off a working private code memory setup."
+          />
         </div>
       </section>
       <section className="band dark">
         <div className="container two-col">
           <div>
             <p className="eyebrow">Operator Experience</p>
-            <h2>Ask local agents about code without handing them the whole repo.</h2>
+            <h2>Ask Hermes about code without handing it the whole repo.</h2>
           </div>
           <div className="terminal">
             {commands.map((command) => (
@@ -116,7 +121,7 @@ function App() {
       </section>
       <section className="cta">
         <div className="container cta-inner">
-          <h2>Give local AI agents private code memory.</h2>
+          <h2>Give Hermes private code memory.</h2>
           <p>SourceVault is preparing pilot installs for privacy-conscious builders and small engineering teams.</p>
           <a href="mailto:hello@trysourcevault.com?subject=SourceVault%20pilot%20install" className="button">
             Request a Pilot Install
@@ -138,10 +143,10 @@ function Hero() {
         </a>
       </nav>
       <div className="hero-content">
-        <p className="eyebrow">Private Code Memory for Local AI Agents</p>
+        <p className="eyebrow">Private Code Memory for Hermes</p>
         <h1>SourceVault</h1>
         <p className="lede">
-          Let AI agents understand and inspect your codebase without sending source code to the cloud.
+          Let Hermes search and read your codebase without sending source code to the cloud.
         </p>
         <div className="hero-actions">
           <a href="mailto:hello@trysourcevault.com?subject=SourceVault%20pilot%20install" className="button">
@@ -161,7 +166,7 @@ function CodeGraph() {
     ["repo", 16, 32],
     ["index", 36, 16],
     ["chroma", 58, 30],
-    ["agent", 79, 16],
+    ["hermes", 79, 16],
     ["dashboard", 84, 52],
     ["auth", 38, 60],
     ["slash", 64, 70],

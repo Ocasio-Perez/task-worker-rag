@@ -17,7 +17,7 @@ SourceVault
 Core promise:
 
 ```text
-Private local code memory for AI agents, without sending source code to the cloud.
+Private local code memory for Hermes, without sending source code to the cloud.
 ```
 
 ## Development
@@ -60,7 +60,7 @@ Primary audience:
 - local AI builders
 - WSL/Linux developers
 - privacy-conscious engineering teams
-- teams experimenting with local agents and Ollama
+- teams using Hermes, Ollama, and local-first AI workflows
 
 ## Package Copy
 

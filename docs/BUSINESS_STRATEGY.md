@@ -7,7 +7,7 @@ This product is a closed-source, proprietary, local-first developer tool.
 Core promise:
 
 ```text
-Private local code memory for AI agents, without sending source code to the cloud.
+Private local code memory for Hermes, without sending source code to the cloud.
 ```
 
 Primary users:
@@ -16,7 +16,7 @@ Primary users:
 - WSL/Linux developers
 - small engineering teams
 - privacy-conscious companies
-- teams experimenting with local agents, Ollama, and Hermes-style workflows
+- teams experimenting with Hermes, Ollama, and local-first AI workflows
 
 Primary interface:
 
