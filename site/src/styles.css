@@ -77,6 +77,10 @@ a {
   padding: 12vh 0 22vh;
 }
 
+.hero-content > * {
+  max-width: 680px;
+}
+
 .hero h1 {
   max-width: 820px;
   margin: 0;
@@ -134,26 +138,32 @@ a {
 
 .graph {
   position: absolute;
-  inset: 0;
-  opacity: 0.95;
+  top: 8%;
+  right: max(20px, calc((100vw - 1160px) / 2));
+  bottom: 12%;
+  width: min(58vw, 720px);
+  opacity: 0.94;
+  pointer-events: none;
 }
 
 .graph svg {
   position: absolute;
-  inset: 6% 0 0 auto;
-  width: 76%;
-  height: 86%;
+  inset: 0;
+  width: 100%;
+  height: 100%;
 }
 
 .graph path {
   fill: none;
   stroke: rgba(96, 165, 250, 0.25);
   stroke-width: 0.24;
+  stroke-dasharray: 2.5 2.2;
+  animation: linePulse 8s linear infinite;
 }
 
 .graph-node {
   position: absolute;
-  width: 112px;
+  width: 104px;
   height: 36px;
   transform: translate(-50%, -50%);
   display: flex;
@@ -166,6 +176,29 @@ a {
   box-shadow: 0 20px 80px rgba(37, 99, 235, 0.18);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
+  animation: nodeFloat 5.5s ease-in-out infinite;
+  animation-delay: var(--delay);
+}
+
+@keyframes linePulse {
+  from {
+    stroke-dashoffset: 0;
+  }
+
+  to {
+    stroke-dashoffset: -18;
+  }
+}
+
+@keyframes nodeFloat {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+
+  50% {
+    translate: 0 -8px;
+  }
 }
 
 .band {
@@ -359,8 +392,36 @@ p {
 }
 
 @media (max-width: 920px) {
+  .hero {
+    min-height: auto;
+  }
+
+  .hero-content {
+    padding: 56px 0 300px;
+  }
+
+  .hero-content > * {
+    max-width: 100%;
+  }
+
   .hero h1 {
     font-size: 58px;
+  }
+
+  .graph {
+    top: auto;
+    right: 20px;
+    bottom: 44px;
+    left: 20px;
+    width: auto;
+    height: 230px;
+    opacity: 0.72;
+  }
+
+  .graph-node {
+    width: 88px;
+    height: 30px;
+    font-size: 11px;
   }
 
   .two-col,
@@ -381,6 +442,10 @@ p {
 }
 
 @media (max-width: 560px) {
+  .hero-content {
+    padding: 44px 0 168px;
+  }
+
   .hero h1 {
     font-size: 44px;
   }
@@ -395,5 +460,22 @@ p {
 
   .spec {
     grid-template-columns: 1fr;
+  }
+
+  .graph {
+    bottom: 36px;
+    height: 120px;
+    opacity: 0.46;
+  }
+
+  .graph-node {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .graph path,
+  .graph-node {
+    animation: none;
   }
 }

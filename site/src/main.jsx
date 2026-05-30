@@ -4,8 +4,8 @@ import "./styles.css";
 
 const commands = [
   "/code-status",
-  '/code-search task-worker-rag "Where is HMAC validation implemented?" 5',
-  "/code-read task-worker-rag services/security/hmac.js",
+  '/code-search acme-api "Where is billing authorization handled?" 5',
+  "/code-read acme-api services/billing/auth.ts",
 ];
 
 const packages = [
@@ -80,7 +80,7 @@ function App() {
           </div>
         </div>
       </section>
-      <section className="container section">
+      <section className="container section" id="packages">
         <p className="eyebrow">Packages</p>
         <h2>Start as a done-for-you private setup.</h2>
         <div className="pricing">
@@ -158,25 +158,29 @@ function Hero() {
 
 function CodeGraph() {
   const nodes = [
-    ["repo", 14, 28],
-    ["index", 34, 18],
-    ["chroma", 54, 30],
-    ["agent", 74, 18],
-    ["dashboard", 86, 38],
-    ["hmac", 40, 54],
-    ["slash", 65, 58],
-    ["local", 22, 68],
+    ["repo", 16, 32],
+    ["index", 36, 16],
+    ["chroma", 58, 30],
+    ["agent", 79, 16],
+    ["dashboard", 84, 52],
+    ["auth", 38, 60],
+    ["slash", 64, 70],
+    ["local", 16, 76],
   ];
 
   return (
     <div className="graph" aria-hidden="true">
       <svg viewBox="0 0 100 80" preserveAspectRatio="none">
-        <path d="M14 28 L34 18 L54 30 L74 18 L86 38 L65 58 L40 54 L22 68 L14 28" />
-        <path d="M34 18 L40 54 L65 58 L54 30" />
-        <path d="M22 68 L54 30 L86 38" />
+        <path d="M16 32 L36 16 L58 30 L79 16 L84 52 L64 70 L38 60 L16 76 L16 32" />
+        <path d="M36 16 L38 60 L64 70 L58 30" />
+        <path d="M16 76 L58 30 L84 52" />
       </svg>
-      {nodes.map(([label, x, y]) => (
-        <div className="graph-node" style={{ left: `${x}%`, top: `${y}%` }} key={label}>
+      {nodes.map(([label, x, y], index) => (
+        <div
+          className="graph-node"
+          style={{ left: `${x}%`, top: `${y}%`, "--delay": `${index * 0.22}s` }}
+          key={label}
+        >
           {label}
         </div>
       ))}
