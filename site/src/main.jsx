@@ -73,7 +73,7 @@ function App() {
         <div className="container two-col">
           <div>
             <p className="eyebrow">Operator Experience</p>
-            <h2>Ask Hermes about code without handing it the whole repo.</h2>
+            <h2>Ask Hermes about private code through controlled local commands.</h2>
           </div>
           <div className="terminal">
             {commands.map((command) => (
@@ -146,7 +146,7 @@ function Hero() {
         <p className="eyebrow">Private Code Memory for Hermes</p>
         <h1>SourceVault</h1>
         <p className="lede">
-          Let Hermes search and read your codebase without sending source code to the cloud.
+          Let Hermes search and read local repositories without stuffing entire codebases into context.
         </p>
         <div className="hero-actions">
           <a href="mailto:hello@trysourcevault.com?subject=SourceVault%20pilot%20install" className="button">

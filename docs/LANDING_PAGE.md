@@ -17,7 +17,7 @@ SourceVault
 Core promise:
 
 ```text
-Private local code memory for Hermes, without sending source code to the cloud.
+Let Hermes search and read local repositories without stuffing entire codebases into context.
 ```
 
 ## Development
