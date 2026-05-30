@@ -55,8 +55,11 @@ task-worker-rag/
 │   ├── DASHBOARD.md
 │   ├── HERMES_CODE_TOOLS.md
 │   ├── HERMES_SLASH_COMMANDS.md
+│   ├── LANDING_PAGE.md
 │   ├── PRODUCT_MILESTONE_1.md
 │   └── RUNBOOK.md
+├── dashboard/
+├── site/
 ├── package.json
 ├── task-worker.js
 ├── routes/
@@ -90,6 +93,7 @@ task-worker-rag/
 - `scripts/install-hermes-integration.sh` — installs/updates the Hermes plugin and optional systemd templates.
 - `deploy/systemd/` — user-service and environment templates for repeatable installs.
 - `dashboard/` — decoupled Vite React dashboard using Ant Design.
+- `site/` — decoupled Vite React landing page for SourceVault.
 
 ## API surface
 
@@ -251,6 +255,9 @@ These values must match across services:
 - `npm run dashboard:install` — install dashboard package dependencies.
 - `npm run dashboard:dev` — run the Vite dashboard dev server.
 - `npm run dashboard:build` — build the dashboard for task-worker to serve at `/dashboard/`.
+- `npm run site:install` — install landing page package dependencies.
+- `npm run site:dev` — run the SourceVault landing page dev server.
+- `npm run site:build` — build the SourceVault landing page.
 - `npm run code-read -- --repo <repo_name> <relative_path>` — call signed read-file and print file content.
 - `npm run code-repos -- <list|show|sync|reindex|cleanup> [repo_name]` — manage repos in the local code-memory corpus.
 - `npm run code-repos -- add <git_url> [repo_name]` — clone a repo into `REPO_ROOT`.
@@ -466,6 +473,31 @@ http://127.0.0.1:9000/dashboard/
 ```
 
 See `docs/DASHBOARD.md` for details.
+
+## Landing Page
+
+The SourceVault landing page lives in `site/`.
+
+Development:
+
+```bash
+npm run site:install
+npm run site:dev
+```
+
+Build:
+
+```bash
+npm run site:build
+```
+
+Domain:
+
+```text
+trysourcevault.com
+```
+
+See `docs/LANDING_PAGE.md` for details.
 
 ## Hermes webhook config
 
